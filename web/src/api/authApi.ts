@@ -21,7 +21,7 @@ export interface UserDto {
   xp: number;
   rank: string;
   skills: string[];
-  isNewUser: boolean;
+  newUser: boolean;
 }
 
 export interface AuthResponse {
@@ -31,6 +31,7 @@ export interface AuthResponse {
     token: string;
     user: UserDto;
   };
+  timestamp: string;
 }
 
 export const authApi = {
