@@ -189,7 +189,7 @@ public class AuthService {
                 .xp(user.getXp())
                 .rank(calculateRank(user.getXp()))
                 .skills(user.getSkills())
-                .isNewUser(isNewUser)
+                .newUser(isNewUser)
                 .build();
     }
 

@@ -33,6 +33,6 @@ public class AuthResponse {
         private List<String> skills;
         // true only right after a brand-new registration — tells the
         // frontend to show the skills selection screen
-        private boolean isNewUser;
+        private boolean newUser;
     }
 }

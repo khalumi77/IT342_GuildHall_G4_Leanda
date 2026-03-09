@@ -35,7 +35,7 @@ export default function Register() {
     try {
       const user = await register(form.email, form.username, form.password);
       // New user → skills screen. Returning user (shouldn't happen here) → dashboard
-      if (user.isNewUser) {
+      if (user.newUser) {
         navigate('/skills');
       } else {
         navigate('/dashboard');
