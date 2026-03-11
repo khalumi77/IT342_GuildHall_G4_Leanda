@@ -2,10 +2,11 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { GoogleLogin } from '@react-oauth/google';
 
 export default function Register() {
   const navigate = useNavigate();
-  const { register } = useAuth();
+  const { register, googleLogin } = useAuth();
 
   const [form, setForm] = useState({ email: '', username: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -34,11 +35,10 @@ export default function Register() {
     setIsLoading(true);
     try {
       const user = await register(form.email, form.username, form.password);
-      // New user → skills screen. Returning user (shouldn't happen here) → dashboard
       if (user.newUser) {
         navigate('/skills');
       } else {
-        navigate('/dashboard');
+        navigate('/guilds');
       }
     } catch (err: any) {
       const msg =
@@ -48,6 +48,20 @@ export default function Register() {
       setServerError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse: any) => {
+    setServerError('');
+    try {
+      const user = await googleLogin(credentialResponse.credential);
+      if (user.newUser) {
+        navigate('/skills');
+      } else {
+        navigate('/guilds');
+      }
+    } catch {
+      setServerError('Google Sign-In failed. Please try again.');
     }
   };
 
@@ -124,13 +138,21 @@ export default function Register() {
 
           <div style={styles.divider}>
             <span style={styles.dividerLine} />
+            <span style={styles.dividerLabel}>or</span>
+            <span style={styles.dividerLine} />
           </div>
 
-          <button style={styles.googleBtn} disabled>
-            <span style={styles.googleLetter}>G</span>
-            Sign up with Google
-          </button>
-          <p style={styles.soonText}>Google Sign-In coming soon</p>
+          {/* Google Sign-In button */}
+          <div style={styles.googleWrap}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setServerError('Google Sign-In failed. Please try again.')}
+              width="380"
+              text="signup_with"
+              shape="rectangular"
+              theme="outline"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -237,7 +259,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#34C759',
     fontWeight: 700,
     fontSize: '40px',
-    marginBottom: '28px',
     margin: '0 0 28px',
   },
   serverError: {
@@ -291,7 +312,6 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     marginTop: '8px',
     fontFamily: "'Prompt', sans-serif",
-    transition: 'background-color 0.2s',
   },
   switchText: {
     textAlign: 'center',
@@ -307,6 +327,7 @@ const styles: Record<string, React.CSSProperties> = {
   divider: {
     display: 'flex',
     alignItems: 'center',
+    gap: '10px',
     marginBottom: '16px',
   },
   dividerLine: {
@@ -315,32 +336,13 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#e0e0e0',
     display: 'block',
   },
-  googleBtn: {
-    width: '100%',
-    padding: '11px',
-    backgroundColor: '#fff',
-    color: '#333',
-    border: '1.5px solid #ddd',
-    borderRadius: '8px',
-    fontWeight: 600,
-    fontSize: '14px',
-    cursor: 'not-allowed',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px',
-    fontFamily: "'Prompt', sans-serif",
-    opacity: 0.6,
-  },
-  googleLetter: {
-    fontWeight: 700,
-    fontSize: '16px',
-    color: '#4285F4',
-  },
-  soonText: {
-    textAlign: 'center',
-    fontSize: '11px',
+  dividerLabel: {
     color: '#aaa',
-    margin: '6px 0 0',
+    fontSize: '13px',
+    flexShrink: 0,
+  },
+  googleWrap: {
+    display: 'flex',
+    justifyContent: 'center',
   },
 };
