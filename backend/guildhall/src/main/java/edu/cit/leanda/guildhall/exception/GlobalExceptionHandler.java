@@ -1,5 +1,9 @@
 package edu.cit.leanda.guildhall.exception;
 
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -7,10 +11,6 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -62,10 +62,12 @@ public class GlobalExceptionHandler {
     // Catch-all
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneral(Exception ex) {
+        // Log full stack to server console for easier debugging
+        ex.printStackTrace();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBody(
                 "SYSTEM-001",
                 "An unexpected error occurred in the Guild",
-                null,
+                ex.getMessage(),                // include message in details for dev
                 HttpStatus.INTERNAL_SERVER_ERROR
         ));
     }

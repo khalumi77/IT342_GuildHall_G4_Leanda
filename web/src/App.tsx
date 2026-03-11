@@ -9,24 +9,34 @@ import Guilds from './pages/Guilds';
 import BrowseGuilds from './pages/BrowseGuilds';
 
 // Guards a route — redirects to /login if not authenticated
+// Avoids the race where `user` is still null immediately after a login/
+// registration request finishes.  See `authenticating` flag below.
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
-  if (isLoading) return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888',
-    }}>
-      Loading...
-    </div>
-  );
+  const { user, token, isLoading, authenticating } = useAuth();
+  if (isLoading || authenticating || (!user && token)) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888',
+      }}>
+        Loading...
+      </div>
+    );
+  }
   return user ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
 // Redirects logged-in users away from auth pages
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
-  if (isLoading) return null;
-  return user ? <Navigate to="/guilds" replace /> : <>{children}</>;
+  const { user, isLoading, authenticating, transitioning } = useAuth();
+  // Skip redirect if transitioning between routes after auth
+  if (isLoading || authenticating || transitioning) {
+    return null;
+  }
+  if (user) {
+    return <Navigate to="/guilds" replace />;
+  }
+  return <>{children}</>;
 }
 
 export default function App() {

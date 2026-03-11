@@ -15,7 +15,13 @@ const SKILLS = [
 
 export default function SkillsSelection() {
   const navigate = useNavigate();
-  const { saveSkills } = useAuth();
+  const { saveSkills, setTransitioning } = useAuth();
+
+
+  // Clear transitioning flag when we actually land on the skills page
+  React.useEffect(() => {
+    setTransitioning(false);
+  }, [setTransitioning]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
@@ -35,8 +41,13 @@ export default function SkillsSelection() {
     try {
       await saveSkills(Array.from(selected));
       navigate('/dashboard');
-    } catch {
-      setError('Failed to save your skills. Please try again.');
+    } catch (err: any) {
+      const msg = 
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.error?.details ||
+        err?.message ||
+        'Failed to save your skills. Please try again.';
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
       setIsLoading(false);
     }
   };

@@ -6,7 +6,7 @@ import { GoogleLogin } from '@react-oauth/google';
 
 export default function Register() {
   const navigate = useNavigate();
-  const { register, googleLogin } = useAuth();
+  const { register, googleLogin, setTransitioning } = useAuth();
 
   const [form, setForm] = useState({ email: '', username: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -35,16 +35,19 @@ export default function Register() {
     setIsLoading(true);
     try {
       const user = await register(form.email, form.username, form.password);
-      if (user.newUser) {
+      const isNew = user?.newUser === true;
+      if (isNew) {
+        setTransitioning(true);  // prevent PublicRoute from redirecting
         navigate('/skills');
       } else {
+        setTransitioning(true);
         navigate('/guilds');
       }
     } catch (err: any) {
       const msg =
         err?.response?.data?.error?.message ||
         err?.response?.data?.error?.details ||
-        'Quest Commission Failed. Please try again.';
+        'Registration failed. Please try again.';
       setServerError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setIsLoading(false);
@@ -56,8 +59,10 @@ export default function Register() {
     try {
       const user = await googleLogin(credentialResponse.credential);
       if (user.newUser) {
+        setTransitioning(true);
         navigate('/skills');
       } else {
+        setTransitioning(true);
         navigate('/guilds');
       }
     } catch {
