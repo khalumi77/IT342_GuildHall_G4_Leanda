@@ -1,5 +1,13 @@
 package edu.cit.leanda.guildhall.service;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import edu.cit.leanda.guildhall.dto.request.LoginRequest;
 import edu.cit.leanda.guildhall.dto.request.RegisterRequest;
 import edu.cit.leanda.guildhall.dto.request.SkillsRequest;
@@ -14,13 +22,6 @@ import edu.cit.leanda.guildhall.repository.MembershipRepository;
 import edu.cit.leanda.guildhall.repository.UserRepository;
 import edu.cit.leanda.guildhall.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -110,9 +111,12 @@ public class AuthService {
      */
     @Transactional
     public AuthResponse saveSkills(String email, SkillsRequest request) {
+        System.out.println("[AuthService] saveSkills called for email: " + email);
+        System.out.println("[AuthService] request skills: " + request.getSkills());
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Adventurer not found"));
+        System.out.println("[AuthService] found user: " + user.getId() + ", " + user.getEmail());
 
         // Only keep valid skill names from the allowed list
         List<String> validatedSkills = request.getSkills() == null
@@ -120,9 +124,11 @@ public class AuthService {
                 : request.getSkills().stream()
                         .filter(VALID_SKILLS::contains)
                         .toList();
+        System.out.println("[AuthService] validated skills: " + validatedSkills);
 
         user.setSkills(validatedSkills);
         user = userRepository.save(user);
+        System.out.println("[AuthService] user saved with skills");
 
         String token = jwtUtil.generateToken(user.getEmail());
 

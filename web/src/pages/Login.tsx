@@ -6,7 +6,7 @@ import { GoogleLogin } from '@react-oauth/google';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, googleLogin } = useAuth();
+  const { login, googleLogin, setTransitioning } = useAuth();
 
   const [form, setForm] = useState({ username: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -47,8 +47,10 @@ export default function Login() {
     try {
       const user = await googleLogin(credentialResponse.credential);
       if (user.newUser) {
+        setTransitioning(true);
         navigate('/skills');
       } else {
+        setTransitioning(true);
         navigate('/guilds');
       }
     } catch {

@@ -1,6 +1,7 @@
 // src/pages/Guilds.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import api from '../api/authApi';
 
@@ -14,11 +15,16 @@ interface Guild {
 
 export default function Guilds() {
   const navigate = useNavigate();
+  const { setTransitioning } = useAuth();
   const [guilds, setGuilds] = useState<Guild[]>([]);
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setTransitioning(false);
+  }, [setTransitioning]);
 
   useEffect(() => {
     // Fetch user's guilds from backend

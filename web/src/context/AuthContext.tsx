@@ -7,12 +7,15 @@ import type { UserDto } from '../api/authApi';
 interface AuthContextType {
   user: UserDto | null;
   token: string | null;
-  isLoading: boolean;
+  isLoading: boolean;            // initial hydration/loading
+  authenticating: boolean;      // true while login/register request pending
+  transitioning: boolean;       // true when navigating between routes after auth
   login: (username: string, password: string) => Promise<UserDto>;
   register: (email: string, username: string, password: string) => Promise<UserDto>;
   saveSkills: (skills: string[]) => Promise<void>;
   logout: () => void;
   googleLogin: (idToken: string) => Promise<UserDto>;
+  setTransitioning: (v: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -22,6 +25,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserDto | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
 
   // Re-hydrate session on page reload
   useEffect(() => {
@@ -29,7 +34,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (savedToken) {
       setToken(savedToken);
       authApi.me()
-        .then(res => setUser(res.data.data.user))
+        .then(res => {
+          setUser(res.data.data.user);
+        })
         .catch(() => {
           localStorage.removeItem('guildhall_token');
           setToken(null);
@@ -46,19 +53,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (username: string, password: string): Promise<UserDto> => {
-    const res = await authApi.login({ username, password });
-    const { token: t, user: u } = res.data.data;
-    persistToken(t);
-    setUser(u);
-    return u;
+    setAuthenticating(true);
+    try {
+      const res = await authApi.login({ username, password });
+      const { token: t, user: u } = res.data.data;
+      persistToken(t);
+      setUser(u);
+      return u;
+    } finally {
+      setAuthenticating(false);
+    }
   };
 
   const register = async (email: string, username: string, password: string): Promise<UserDto> => {
-    const res = await authApi.register({ email, username, password });
-    const { token: t, user: u } = res.data.data;
-    persistToken(t);
-    setUser(u);
-    return u;
+    setAuthenticating(true);
+    try {
+      const res = await authApi.register({ email, username, password });
+      const { token: t, user: u } = res.data.data;
+      persistToken(t);
+      setUser(u);
+      return u;
+    } finally {
+      setAuthenticating(false);
+    }
   };
 
   const saveSkills = async (skills: string[]): Promise<void> => {
@@ -76,16 +93,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
     const googleLogin = async (idToken: string): Promise<UserDto> => {
-    const res = await authApi.googleLogin(idToken);
-    const { token: t, user: u } = res.data.data;
-    persistToken(t);
-    setUser(u);
-    return u;
+    setAuthenticating(true);
+    try {
+      const res = await authApi.googleLogin(idToken);
+      const { token: t, user: u } = res.data.data;
+      persistToken(t);
+      setUser(u);
+      return u;
+    } finally {
+      setAuthenticating(false);
+    }
   };
 
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, saveSkills, logout, googleLogin }}>
+    <AuthContext.Provider value={{ user, token, isLoading, authenticating, transitioning, login, register, saveSkills, logout, googleLogin, setTransitioning }}>
       {children}
     </AuthContext.Provider>
   );
