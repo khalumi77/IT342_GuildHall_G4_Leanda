@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import edu.cit.leanda.guildhall.service.GoogleAuthService;
 
 import java.time.Instant;
 import java.util.Map;
@@ -22,6 +23,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final GoogleAuthService googleAuthService;
 
     /**
      * POST /api/v1/auth/register
@@ -80,6 +82,23 @@ public class AuthController {
                 "data", Map.of("message", "Logged out successfully"),
                 "timestamp", Instant.now().toString()
         ));
+    }
+
+    /**
+     * POST /api/v1/auth/google
+     * Verifies a Google ID token and returns a GuildHall JWT.
+     */
+    @PostMapping("/google")
+    public ResponseEntity<?> googleLogin(@RequestBody Map<String, String> body) {
+        String idToken = body.get("idToken");
+        if (idToken == null || idToken.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "error", Map.of("message", "idToken is required")
+            ));
+        }
+        AuthResponse response = googleAuthService.googleLogin(idToken);
+        return ResponseEntity.ok(wrap(response));
     }
 
     // ── Wrapper — matches the standard response structure from the SDD ───────

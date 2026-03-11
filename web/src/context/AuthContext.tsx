@@ -12,9 +12,11 @@ interface AuthContextType {
   register: (email: string, username: string, password: string) => Promise<UserDto>;
   saveSkills: (skills: string[]) => Promise<void>;
   logout: () => void;
+  googleLogin: (idToken: string) => Promise<UserDto>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserDto | null>(null);
@@ -73,8 +75,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+    const googleLogin = async (idToken: string): Promise<UserDto> => {
+    const res = await authApi.googleLogin(idToken);
+    const { token: t, user: u } = res.data.data;
+    persistToken(t);
+    setUser(u);
+    return u;
+  };
+
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, saveSkills, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, saveSkills, logout, googleLogin }}>
       {children}
     </AuthContext.Provider>
   );
