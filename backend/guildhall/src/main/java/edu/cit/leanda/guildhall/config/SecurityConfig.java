@@ -46,13 +46,13 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Public endpoints — no token needed
                 .requestMatchers(
                     "/api/v1/auth/register",
                     "/api/v1/auth/login",
                     "/api/v1/auth/google"
                 ).permitAll()
-                // Everything else requires a valid JWT
+                // Admin endpoints locked to ROLE_GUILDMASTER at filter level
+                .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_GUILDMASTER")
                 .anyRequest().authenticated()
             )
             .authenticationProvider(authenticationProvider())
@@ -90,7 +90,6 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        // BCrypt with strength 12 as specified in the SDD
         return new BCryptPasswordEncoder(12);
     }
 }

@@ -7,10 +7,9 @@ import Login from './pages/Login';
 import SkillsSelection from './pages/SkillsSelection';
 import Guilds from './pages/Guilds';
 import BrowseGuilds from './pages/BrowseGuilds';
+import AdminDashboard from './pages/AdminDashboard';
 
 // Guards a route — redirects to /login if not authenticated
-// Avoids the race where `user` is still null immediately after a login/
-// registration request finishes.  See `authenticating` flag below.
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
   if (isLoading || authenticating || (!user && token)) {
@@ -26,15 +25,33 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return user ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
+// Guards admin routes — must be ROLE_GUILDMASTER
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, token, isLoading, authenticating } = useAuth();
+  if (isLoading || authenticating || (!user && token)) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888',
+      }}>
+        Loading...
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'ROLE_GUILDMASTER') return <Navigate to="/guilds" replace />;
+  return <>{children}</>;
+}
+
 // Redirects logged-in users away from auth pages
+// Guildmasters go to /admin, adventurers go to /guilds
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authenticating, transitioning } = useAuth();
-  // Skip redirect if transitioning between routes after auth
   if (isLoading || authenticating || transitioning) {
     return null;
   }
   if (user) {
-    return <Navigate to="/guilds" replace />;
+    return <Navigate to={user.role === 'ROLE_GUILDMASTER' ? '/admin' : '/guilds'} replace />;
   }
   return <>{children}</>;
 }
@@ -47,6 +64,7 @@ export default function App() {
         * { box-sizing: border-box; }
         body { margin: 0; }
         input:focus { border-color: #34C759 !important; box-shadow: 0 0 0 3px rgba(52,199,89,0.15); outline: none; }
+        textarea:focus { border-color: #34C759 !important; box-shadow: 0 0 0 3px rgba(52,199,89,0.15); outline: none; }
         button:hover:not(:disabled) { filter: brightness(0.93); }
       `}</style>
 
@@ -59,14 +77,17 @@ export default function App() {
           <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
 
-          {/* First-time skills screen */}
+          {/* First-time skills screen (adventurers only) */}
           <Route path="/skills" element={<PrivateRoute><SkillsSelection /></PrivateRoute>} />
 
-          {/* Protected app routes */}
+          {/* Adventurer routes */}
           <Route path="/guilds"        element={<PrivateRoute><Guilds /></PrivateRoute>} />
           <Route path="/guilds/browse" element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
 
-          {/* Legacy /dashboard redirect → /guilds */}
+          {/* Admin routes */}
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+
+          {/* Legacy redirect */}
           <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />
 
           {/* Catch-all */}
