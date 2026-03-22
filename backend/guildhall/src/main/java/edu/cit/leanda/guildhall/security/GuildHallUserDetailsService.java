@@ -20,9 +20,15 @@ public class GuildHallUserDetailsService implements UserDetailsService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("Adventurer not found: " + email));
 
+        // Google-only accounts have no password — use empty string so Spring Security
+        // doesn't reject the UserDetails object during JWT-based authentication.
+        // The actual password check is bypassed entirely because we use JWT auth,
+        // not UsernamePasswordAuthenticationToken with a real password comparison.
+        String password = user.getPassword() != null ? user.getPassword() : "";
+
         return new org.springframework.security.core.userdetails.User(
                 user.getEmail(),
-                user.getPassword(),
+                password,
                 List.of(new SimpleGrantedAuthority(user.getRole().name()))
         );
     }
