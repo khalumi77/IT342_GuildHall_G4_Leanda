@@ -40,7 +40,7 @@ export default function SkillsSelection() {
     setError('');
     try {
       await saveSkills(Array.from(selected));
-      navigate('/dashboard');
+      navigate('/guilds');
     } catch (err: any) {
       const msg = 
         err?.response?.data?.error?.message ||
@@ -53,7 +53,7 @@ export default function SkillsSelection() {
   };
 
   const handleSkip = () => {
-    navigate('/dashboard');
+    navigate('/guilds');
   };
 
   return (

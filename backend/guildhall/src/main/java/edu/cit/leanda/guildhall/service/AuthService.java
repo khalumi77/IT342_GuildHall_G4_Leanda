@@ -126,7 +126,7 @@ public class AuthService {
                         .toList();
         System.out.println("[AuthService] validated skills: " + validatedSkills);
 
-        user.setSkills(validatedSkills);
+        user.setSkills(new ArrayList<>(validatedSkills));
         user = userRepository.save(user);
         System.out.println("[AuthService] user saved with skills");
 
