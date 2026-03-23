@@ -22,6 +22,10 @@ export interface UserDto {
   rank: string;
   skills: string[];
   newUser: boolean;
+  // Profile fields
+  bio?: string;
+  profilePictureUrl?: string;
+  googleSub?: string;
 }
 
 export interface AuthResponse {
@@ -49,9 +53,9 @@ export const authApi = {
 
   logout: () =>
     api.post('/auth/logout'),
-  
+
   googleLogin: (idToken: string) =>
-    api.post<AuthResponse>('/auth/google', { idToken })
+    api.post<AuthResponse>('/auth/google', { idToken }),
 };
 
 export default api;

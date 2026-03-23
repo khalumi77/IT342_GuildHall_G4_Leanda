@@ -186,16 +186,22 @@ public class AuthService {
      * Calculates rank title from XP thresholds.
      */
     private AuthResponse.UserDto toUserDto(User user, boolean isNewUser) {
+        int xp    = user.getXp()    != null ? user.getXp()    : 0;
+        int level = user.getLevel() != null ? user.getLevel() : 1;
+ 
         return AuthResponse.UserDto.builder()
                 .id(user.getId())
                 .email(user.getEmail())
                 .username(user.getUsername())
                 .role(user.getRole().name())
-                .level(user.getLevel())
-                .xp(user.getXp())
-                .rank(calculateRank(user.getXp()))
+                .level(level)
+                .xp(xp)
+                .rank(calculateRank(level))          // <-- level-based
                 .skills(user.getSkills())
                 .newUser(isNewUser)
+                .bio(user.getBio())
+                .profilePictureUrl(user.getProfilePictureUrl())
+                .googleSub(user.getGoogleSub())
                 .build();
     }
 
@@ -203,10 +209,11 @@ public class AuthService {
      * Rank titles based on XP thresholds.
      * Bronze → Silver → Gold → Mithril
      */
-    private String calculateRank(int xp) {
-        if (xp >= 5000) return "Mithril";
-        if (xp >= 2000) return "Gold";
-        if (xp >= 500)  return "Silver";
+    private String calculateRank(int level) {
+        if (level >= 71) return "Adamantite";
+        if (level >= 51) return "Mithril";
+        if (level >= 31) return "Gold";
+        if (level >= 21) return "Silver";
         return "Bronze";
     }
 }

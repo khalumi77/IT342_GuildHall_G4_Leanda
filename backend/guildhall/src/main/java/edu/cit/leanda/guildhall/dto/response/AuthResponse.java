@@ -31,8 +31,11 @@ public class AuthResponse {
         private Integer xp;
         private String rank;
         private List<String> skills;
-        // true only right after a brand-new registration — tells the
-        // frontend to show the skills selection screen
         private boolean newUser;
+
+        // Profile fields
+        private String bio;
+        private String profilePictureUrl;
+        private String googleSub;   // non-null means Google is linked
     }
 }
