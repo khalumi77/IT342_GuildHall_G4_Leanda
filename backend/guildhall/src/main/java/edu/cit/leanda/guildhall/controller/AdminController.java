@@ -169,18 +169,46 @@ public class AdminController {
     @GetMapping("/users")
     public ResponseEntity<?> getAllUsers() {
         List<Map<String, Object>> users = userRepository.findAll().stream()
-                .map(u -> Map.<String, Object>of(
-                        "id", u.getId(),
-                        "username", u.getUsername(),
-                        "email", u.getEmail(),
-                        "role", u.getRole().name(),
-                        "level", u.getLevel() != null ? u.getLevel() : 1,
-                        "xp", u.getXp() != null ? u.getXp() : 0,
-                        "rank", calculateRank(u.getXp() != null ? u.getXp() : 0)
-                ))
+                .map(u -> {
+                    Map<String, Object> m = new java.util.HashMap<>();
+                    m.put("id", u.getId());
+                    m.put("username", u.getUsername());
+                    m.put("email", u.getEmail());
+                    m.put("role", u.getRole().name());
+                    m.put("level", u.getLevel() != null ? u.getLevel() : 1);
+                    m.put("xp", u.getXp() != null ? u.getXp() : 0);
+                    m.put("rank", calculateRank(u.getLevel() != null ? u.getLevel() : 1));
+                    m.put("profilePictureUrl", u.getProfilePictureUrl() != null ? u.getProfilePictureUrl() : "");
+                    return m;
+                })
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(wrap(users));
+    }
+
+    /**
+     * GET /api/v1/admin/users/{id}
+     * Returns a single user's full profile for admin viewing.
+     */
+    @GetMapping("/users/{id}")
+    public ResponseEntity<?> getUserById(@PathVariable Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("id", user.getId());
+        data.put("username", user.getUsername());
+        data.put("email", user.getEmail());
+        data.put("role", user.getRole().name());
+        data.put("level", user.getLevel() != null ? user.getLevel() : 1);
+        data.put("xp", user.getXp() != null ? user.getXp() : 0);
+        data.put("rank", calculateRank(user.getLevel() != null ? user.getLevel() : 1));
+        data.put("skills", user.getSkills() != null ? user.getSkills() : java.util.List.of());
+        data.put("bio", user.getBio() != null ? user.getBio() : "");
+        data.put("profilePictureUrl", user.getProfilePictureUrl() != null ? user.getProfilePictureUrl() : "");
+        data.put("googleSub", user.getGoogleSub());
+
+        return ResponseEntity.ok(wrap(data));
     }
 
     /**

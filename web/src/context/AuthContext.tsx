@@ -7,19 +7,21 @@ import type { UserDto } from '../api/authApi';
 interface AuthContextType {
   user: UserDto | null;
   token: string | null;
-  isLoading: boolean;            // initial hydration/loading
-  authenticating: boolean;      // true while login/register request pending
-  transitioning: boolean;       // true when navigating between routes after auth
+  isLoading: boolean;
+  authenticating: boolean;
+  transitioning: boolean;
   login: (username: string, password: string) => Promise<UserDto>;
   register: (email: string, username: string, password: string) => Promise<UserDto>;
   saveSkills: (skills: string[]) => Promise<void>;
   logout: () => void;
   googleLogin: (idToken: string) => Promise<UserDto>;
   setTransitioning: (v: boolean) => void;
+  // Allows profile page to push updates (bio, picture) back into the global user state
+  // so the navbar reflects changes immediately without a page reload.
+  updateUserState: (partial: Partial<UserDto>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserDto | null>(null);
@@ -92,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-    const googleLogin = async (idToken: string): Promise<UserDto> => {
+  const googleLogin = async (idToken: string): Promise<UserDto> => {
     setAuthenticating(true);
     try {
       const res = await authApi.googleLogin(idToken);
@@ -105,9 +107,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  /**
+   * Merges partial user data into the global user state.
+   * Call this from the Profile page after saving bio or profile picture
+   * so the Navbar immediately reflects the change.
+   */
+  const updateUserState = (partial: Partial<UserDto>) => {
+    setUser(prev => prev ? { ...prev, ...partial } : prev);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, authenticating, transitioning, login, register, saveSkills, logout, googleLogin, setTransitioning }}>
+    <AuthContext.Provider value={{
+      user, token, isLoading, authenticating, transitioning,
+      login, register, saveSkills, logout, googleLogin,
+      setTransitioning, updateUserState,
+    }}>
       {children}
     </AuthContext.Provider>
   );

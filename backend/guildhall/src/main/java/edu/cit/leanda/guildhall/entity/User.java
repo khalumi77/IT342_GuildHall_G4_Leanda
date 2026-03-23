@@ -30,7 +30,6 @@ public class User {
     @Column(nullable = false)
     private Role role = Role.ROLE_ADVENTURER;
 
-    // Maps to PostgreSQL text[] via Hibernate's array support
     @ElementCollection
     @CollectionTable(name = "user_skills", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "skill")
@@ -44,6 +43,15 @@ public class User {
 
     @Column(nullable = false)
     private Integer xp = 0;
+
+    // About the Adventurer description
+    @Column(columnDefinition = "TEXT")
+    private String bio;
+
+    // Profile picture stored as a URL or base64 data URI
+    // For production, store the URL from your file storage service.
+    @Column(name = "profile_picture_url", columnDefinition = "TEXT")
+    private String profilePictureUrl;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

@@ -8,51 +8,31 @@ import SkillsSelection from './pages/SkillsSelection';
 import Guilds from './pages/Guilds';
 import BrowseGuilds from './pages/BrowseGuilds';
 import AdminDashboard from './pages/AdminDashboard';
+import Profile from './pages/Profile';
+import UserProfileView from './pages/UserProfileView';
 
-// Guards a route — redirects to /login if not authenticated
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
   if (isLoading || authenticating || (!user && token)) {
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888',
-      }}>
-        Loading...
-      </div>
-    );
+    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888' }}>Loading...</div>;
   }
   return user ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
-// Guards admin routes — must be ROLE_GUILDMASTER
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
   if (isLoading || authenticating || (!user && token)) {
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888',
-      }}>
-        Loading...
-      </div>
-    );
+    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888' }}>Loading...</div>;
   }
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'ROLE_GUILDMASTER') return <Navigate to="/guilds" replace />;
   return <>{children}</>;
 }
 
-// Redirects logged-in users away from auth pages
-// Guildmasters go to /admin, adventurers go to /guilds
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authenticating, transitioning } = useAuth();
-  if (isLoading || authenticating || transitioning) {
-    return null;
-  }
-  if (user) {
-    return <Navigate to={user.role === 'ROLE_GUILDMASTER' ? '/admin' : '/guilds'} replace />;
-  }
+  if (isLoading || authenticating || transitioning) return null;
+  if (user) return <Navigate to={user.role === 'ROLE_GUILDMASTER' ? '/admin' : '/guilds'} replace />;
   return <>{children}</>;
 }
 
@@ -70,28 +50,23 @@ export default function App() {
 
       <BrowserRouter>
         <Routes>
-          {/* Default → login */}
           <Route path="/" element={<Navigate to="/login" replace />} />
 
-          {/* Public auth routes */}
           <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
 
-          {/* First-time skills screen (adventurers only) */}
-          <Route path="/skills" element={<PrivateRoute><SkillsSelection /></PrivateRoute>} />
+          <Route path="/skills"  element={<PrivateRoute><SkillsSelection /></PrivateRoute>} />
+          <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
 
-          {/* Adventurer routes */}
           <Route path="/guilds"        element={<PrivateRoute><Guilds /></PrivateRoute>} />
           <Route path="/guilds/browse" element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
 
-          {/* Admin routes */}
-          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+          <Route path="/admin"                  element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+          {/* Admin viewing another user's profile */}
+          <Route path="/admin/users/:userId"    element={<AdminRoute><UserProfileView /></AdminRoute>} />
 
-          {/* Legacy redirect */}
           <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />
-
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*"          element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
