@@ -10,6 +10,8 @@ import BrowseGuilds from './pages/BrowseGuilds';
 import AdminDashboard from './pages/AdminDashboard';
 import Profile from './pages/Profile';
 import UserProfileView from './pages/UserProfileView';
+import GuildDashboard from './pages/GuildDashboard';
+import CommissionedQuests from './pages/CommissionedQuests';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
@@ -58,12 +60,16 @@ export default function App() {
           <Route path="/skills"  element={<PrivateRoute><SkillsSelection /></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
 
-          <Route path="/guilds"        element={<PrivateRoute><Guilds /></PrivateRoute>} />
-          <Route path="/guilds/browse" element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
+          <Route path="/guilds"              element={<PrivateRoute><Guilds /></PrivateRoute>} />
+          <Route path="/guilds/browse"       element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
+          <Route path="/guilds/:guildId"     element={<PrivateRoute><GuildDashboard /></PrivateRoute>} />
 
-          <Route path="/admin"                  element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-          {/* Admin viewing another user's profile */}
-          <Route path="/admin/users/:userId"    element={<AdminRoute><UserProfileView /></AdminRoute>} />
+          <Route path="/quests/commissioned" element={<PrivateRoute><CommissionedQuests /></PrivateRoute>} />
+          {/* Accepted Quests — placeholder redirect until implemented */}
+          <Route path="/quests/accepted"     element={<PrivateRoute><Navigate to="/guilds" replace /></PrivateRoute>} />
+
+          <Route path="/admin"               element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+          <Route path="/admin/users/:userId" element={<AdminRoute><UserProfileView /></AdminRoute>} />
 
           <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />
           <Route path="*"          element={<Navigate to="/login" replace />} />
