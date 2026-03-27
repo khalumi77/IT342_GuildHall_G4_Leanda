@@ -33,14 +33,37 @@ interface Quest {
 
 const CATEGORIES = ['Design', 'Academic', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
 
-const QUOTES = [
+// ── Daily quote helpers ─────────────────────────────────────────────────────
+
+const QUOTE_CACHE_KEY = 'guildhall_daily_quote';
+
+interface DailyQuote { text: string; author: string; date: string; }
+
+const FALLBACK_QUOTES: { text: string; author: string }[] = [
   { text: "The only limit to our realization of tomorrow is our doubts of today.", author: "Franklin D. Roosevelt" },
-  { text: "Do what you can, with what you have, where you are.", author: "Theodore Roosevelt" },
-  { text: "It does not matter how slowly you go, as long as you do not stop.", author: "Confucius" },
   { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
   { text: "In the middle of every difficulty lies opportunity.", author: "Albert Einstein" },
-  { text: "Action is the foundational key to all success.", author: "Pablo Picasso" },
+  { text: "Do what you can, with what you have, where you are.", author: "Theodore Roosevelt" },
+  { text: "It does not matter how slowly you go as long as you do not stop.", author: "Confucius" },
 ];
+
+function getTodayString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getCachedQuote(): DailyQuote | null {
+  try {
+    const raw = sessionStorage.getItem(QUOTE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed: DailyQuote = JSON.parse(raw);
+    return parsed.date === getTodayString() ? parsed : null;
+  } catch { return null; }
+}
+
+function setCachedQuote(q: DailyQuote) {
+  try { sessionStorage.setItem(QUOTE_CACHE_KEY, JSON.stringify(q)); }
+  catch { /* not critical */ }
+}
 
 // ── Quest Icon SVG ─────────────────────────────────────────────────────────────
 function QuestIcon({ size = 40 }: { size?: number }) {
@@ -69,7 +92,8 @@ export default function GuildDashboard() {
   const [quests, setQuests] = useState<Quest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [quote] = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+  const [quote, setQuote] = useState<{ text: string; author: string } | null>(getCachedQuote);
+  const [quoteLoading, setQuoteLoading] = useState(quote === null);
   const [search, setSearch] = useState('');
 
   // Commission form
@@ -109,6 +133,31 @@ export default function GuildDashboard() {
       })
       .finally(() => setIsLoading(false));
   }, [guildId, navigate]);
+
+  // ── Fetch daily quote from backend proxy ──────────────────────────────────
+  useEffect(() => {
+    // Already have today's quote cached in sessionStorage — skip network call
+    if (quote !== null) { setQuoteLoading(false); return; }
+
+    setQuoteLoading(true);
+    api.get('/wisdom')
+      .then(res => {
+        const data = res.data?.data ?? res.data;
+        if (data?.text && data?.author) {
+          const fresh = { text: data.text, author: data.author, date: getTodayString() };
+          setCachedQuote(fresh);
+          setQuote(fresh);
+        } else {
+          throw new Error('bad response');
+        }
+      })
+      .catch(() => {
+        // Use a deterministic fallback based on today's date so all users see the same one
+        const dayIndex = new Date().getDate() % FALLBACK_QUOTES.length;
+        setQuote(FALLBACK_QUOTES[dayIndex]);
+      })
+      .finally(() => setQuoteLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -202,16 +251,31 @@ export default function GuildDashboard() {
 
   return (
     <div style={s.page}>
+      <style>{`
+        @keyframes shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
       <Navbar />
 
       <main style={s.main}>
         <button style={s.backBtn} onClick={() => navigate('/guilds')}>← My Guilds</button>
 
-        {/* Quote */}
+        {/* Daily Quote */}
         <div style={s.quoteSection}>
           <div style={s.quoteLabel}>Today's Heroes' Wisdom</div>
-          <div style={s.quoteText}>"{quote.text}"</div>
-          <div style={s.quoteAuthor}>–{quote.author}</div>
+          {quoteLoading ? (
+            <>
+              <div style={s.quoteShimmer} />
+              <div style={{ ...s.quoteShimmer, width: '40%', marginTop: '6px' }} />
+            </>
+          ) : quote ? (
+            <>
+              <div style={s.quoteText}>"{quote.text}"</div>
+              <div style={s.quoteAuthor}>–{quote.author}</div>
+            </>
+          ) : null}
         </div>
 
         {/* Quest panel */}
@@ -523,6 +587,13 @@ const s: Record<string, React.CSSProperties> = {
   quoteLabel: { color: '#34C759', fontWeight: 700, fontSize: '15px', marginBottom: '8px' },
   quoteText: { color: '#555', fontSize: '14px', fontStyle: 'italic', lineHeight: '1.6', maxWidth: '500px', margin: '0 auto 4px' },
   quoteAuthor: { color: '#999', fontSize: '12px', fontWeight: 500 },
+  quoteShimmer: {
+    height: '14px', borderRadius: '6px',
+    background: 'linear-gradient(90deg, #e8e8e8 25%, #f5f5f5 50%, #e8e8e8 75%)',
+    backgroundSize: '200% 100%',
+    animation: 'shimmer 1.4s infinite',
+    width: '70%', margin: '0 auto',
+  },
   questPanel: { backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 2px 16px rgba(0,0,0,0.07)', border: '1px solid #eee', overflow: 'hidden', marginBottom: '16px' },
   panelHeader: { padding: '16px 20px 14px', borderBottom: '1px solid #f0f0f0' },
   panelTitleRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' },
