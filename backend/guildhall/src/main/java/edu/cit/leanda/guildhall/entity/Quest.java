@@ -50,11 +50,16 @@ public class Quest {
     @Column(nullable = false)
     private QuestStatus status = QuestStatus.OPEN;
 
-    @Column(name = "attachment_path")
+    // File name (e.g. "assignment.png") — stored separately for display
+    @Column(name = "attachment_name")
+    private String attachmentName;
+
+    // Base64 data URI or file URL — must be TEXT to hold large base64 strings
+    @Column(name = "attachment_path", columnDefinition = "TEXT")
     private String attachmentPath;
 
     @Column(name = "xp_reward", nullable = false)
-    private Integer xpReward = 50;
+    private Integer xpReward = 20;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

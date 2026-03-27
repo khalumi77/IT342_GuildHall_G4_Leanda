@@ -10,7 +10,6 @@ export default function Navbar() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const isGuildmaster = user?.role === 'ROLE_GUILDMASTER';
-  // Where the logo and "Communities" link go — role-aware
   const homePath = isGuildmaster ? '/admin' : '/guilds';
 
   useEffect(() => {
@@ -23,8 +22,8 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const go = (path: string) => { setProfileOpen(false); navigate(path); };
   const handleLogout = () => { logout(); navigate('/login'); };
-  const goToProfile = () => { setProfileOpen(false); navigate('/profile'); };
 
   return (
     <nav style={styles.nav}>
@@ -51,23 +50,22 @@ export default function Navbar() {
 
         <div style={{ position: 'relative' }} ref={dropdownRef}>
           <button style={styles.profileBtn} onClick={() => setProfileOpen(o => !o)} title="Profile">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-              <circle cx="12" cy="7" r="4"/>
-            </svg>
+            {user?.profilePictureUrl ? (
+              <img src={user.profilePictureUrl} alt="avatar" style={styles.navAvatar} />
+            ) : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            )}
           </button>
 
           {profileOpen && (
             <div style={styles.dropdown}>
-              {/* Clickable profile header */}
-              <button style={styles.dropdownProfileBtn} onClick={goToProfile}>
-                {/* Profile picture or initial */}
+              {/* Profile header — click → /profile */}
+              <button style={styles.dropdownProfileBtn} onClick={() => go('/profile')}>
                 {user?.profilePictureUrl ? (
-                  <img
-                    src={user.profilePictureUrl}
-                    alt="avatar"
-                    style={styles.avatarImg}
-                  />
+                  <img src={user.profilePictureUrl} alt="avatar" style={styles.avatarImg} />
                 ) : (
                   <div style={styles.avatarCircle}>
                     {user?.username?.[0]?.toUpperCase() ?? '?'}
@@ -75,7 +73,6 @@ export default function Navbar() {
                 )}
                 <div style={styles.profileInfo}>
                   <div style={styles.dropdownUsername}>{user?.username}</div>
-                  {/* Always show rank (works for both roles) */}
                   <div style={styles.dropdownRank}>{user?.rank ?? 'Bronze'}</div>
                 </div>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -85,23 +82,20 @@ export default function Navbar() {
 
               <div style={styles.dropdownDivider} />
 
-              {/* For guildmasters: show both dashboards */}
               {isGuildmaster ? (
                 <>
-                  <button style={styles.dropdownItem} onClick={() => { setProfileOpen(false); navigate('/admin'); }}>
-                    Admin Dashboard
-                  </button>
-                  <button style={styles.dropdownItem} onClick={() => { setProfileOpen(false); navigate('/guilds'); }}>
-                    Adventurer Dashboard
-                  </button>
+                  <button style={styles.dropdownItem} onClick={() => go('/admin')}>Admin Dashboard</button>
+                  <button style={styles.dropdownItem} onClick={() => go('/guilds')}>Adventurer Dashboard</button>
                 </>
               ) : (
-                <button style={styles.dropdownItem} onClick={() => { setProfileOpen(false); navigate('/guilds'); }}>
-                  Communities
-                </button>
+                <button style={styles.dropdownItem} onClick={() => go('/guilds')}>Communities</button>
               )}
 
-              <button style={styles.dropdownItem} onClick={() => { setProfileOpen(false); /* TODO: accepted quests */ }}>
+              <button style={styles.dropdownItem} onClick={() => go('/quests/commissioned')}>
+                Commissioned Quests
+              </button>
+
+              <button style={styles.dropdownItem} onClick={() => go('/quests/accepted')}>
                 Accepted Quests
               </button>
 
@@ -129,27 +123,21 @@ const styles: Record<string, React.CSSProperties> = {
   adminBadge: { backgroundColor: '#DDFFBC', color: '#52734D', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', letterSpacing: '0.5px' },
   rightIcons: { display: 'flex', alignItems: 'center', gap: '4px' },
   iconBtn: { background: 'none', border: 'none', cursor: 'not-allowed', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', opacity: 0.5 },
-  profileBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', transition: 'background 0.15s' },
+  profileBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: '6px', borderRadius: '8px', display: 'flex', alignItems: 'center', transition: 'background 0.15s' },
+  navAvatar: { width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' as const, border: '2px solid #DDFFBC' },
 
   dropdown: {
     position: 'absolute', top: 'calc(100% + 8px)', right: 0, backgroundColor: '#fff',
     border: '1px solid #e8e8e8', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-    minWidth: '210px', overflow: 'hidden', padding: '8px 0',
+    minWidth: '220px', overflow: 'hidden', padding: '8px 0', zIndex: 200,
   },
   dropdownProfileBtn: {
     display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
     padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer',
     textAlign: 'left' as const, transition: 'background 0.1s',
   },
-  avatarImg: {
-    width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' as const,
-    border: '2px solid #DDFFBC', flexShrink: 0,
-  },
-  avatarCircle: {
-    width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#52734D',
-    color: '#fff', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '16px',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
+  avatarImg: { width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' as const, border: '2px solid #DDFFBC', flexShrink: 0 },
+  avatarCircle: { width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#52734D', color: '#fff', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   profileInfo: { flex: 1, textAlign: 'left' as const },
   dropdownUsername: { fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px', color: '#222' },
   dropdownRank: { fontFamily: "'Prompt', sans-serif", fontSize: '12px', color: '#888' },

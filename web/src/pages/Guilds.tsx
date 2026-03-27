@@ -27,14 +27,13 @@ export default function Guilds() {
   }, [setTransitioning]);
 
   useEffect(() => {
-    // Fetch user's guilds from backend
     api.get('/guilds/my')
       .then(res => {
         const data = res.data?.data ?? res.data;
         setGuilds(Array.isArray(data) ? data : []);
       })
       .catch(() => {
-        // Fallback: show Global Square as placeholder until backend endpoint exists
+        // Fallback placeholder
         setGuilds([
           { id: 1, name: 'Global Square', description: 'The default community for all adventurers.', memberCount: 1, questCount: 0 },
         ]);
@@ -42,7 +41,6 @@ export default function Guilds() {
       .finally(() => setIsLoading(false));
   }, []);
 
-  // Close context menu when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -53,7 +51,8 @@ export default function Guilds() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleLeaveGuild = async (guildId: number) => {
+  const handleLeaveGuild = async (guildId: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // don't navigate to dashboard
     if (!window.confirm('Are you sure you want to leave this guild?')) return;
     try {
       await api.delete(`/guilds/${guildId}/leave`);
@@ -76,10 +75,7 @@ export default function Guilds() {
         <div style={styles.header}>
           <div style={styles.titleRow}>
             <h2 style={styles.title}>My Guilds</h2>
-            <button
-              style={styles.browseBtn}
-              onClick={() => navigate('/guilds/browse')}
-            >
+            <button style={styles.browseBtn} onClick={() => navigate('/guilds/browse')}>
               Browse more guilds
             </button>
           </div>
@@ -109,8 +105,12 @@ export default function Guilds() {
                 key={guild.id}
                 guild={guild}
                 isMenuOpen={openMenuId === guild.id}
-                onMenuToggle={() => setOpenMenuId(id => id === guild.id ? null : guild.id)}
-                onLeave={() => handleLeaveGuild(guild.id)}
+                onCardClick={() => navigate(`/guilds/${guild.id}`)}
+                onMenuToggle={(e) => {
+                  e.stopPropagation();
+                  setOpenMenuId(id => id === guild.id ? null : guild.id);
+                }}
+                onLeave={(e) => handleLeaveGuild(guild.id, e)}
                 menuRef={menuRef}
               />
             ))}
@@ -122,16 +122,17 @@ export default function Guilds() {
 }
 
 function GuildCard({
-  guild, isMenuOpen, onMenuToggle, onLeave, menuRef,
+  guild, isMenuOpen, onCardClick, onMenuToggle, onLeave, menuRef,
 }: {
   guild: Guild;
   isMenuOpen: boolean;
-  onMenuToggle: () => void;
-  onLeave: () => void;
+  onCardClick: () => void;
+  onMenuToggle: (e: React.MouseEvent) => void;
+  onLeave: (e: React.MouseEvent) => void;
   menuRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
-    <div style={styles.card}>
+    <div style={styles.card} onClick={onCardClick}>
       <span style={styles.cardName}>{guild.name}</span>
 
       <div style={styles.cardStats}>
@@ -145,7 +146,6 @@ function GuildCard({
           </svg>
           <span style={styles.statNum}>{guild.memberCount}</span>
         </span>
-
         {/* Quests */}
         <span style={styles.statItem}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#52734D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -153,23 +153,19 @@ function GuildCard({
             <polyline points="14 2 14 8 20 8"/>
             <line x1="16" y1="13" x2="8" y2="13"/>
             <line x1="16" y1="17" x2="8" y2="17"/>
-            <polyline points="10 9 9 9 8 9"/>
           </svg>
           <span style={styles.statNum}>{guild.questCount}</span>
         </span>
       </div>
 
       {/* Three-dot menu */}
-      <div style={{ position: 'relative' }} ref={menuRef}>
+      <div style={{ position: 'relative' }} ref={isMenuOpen ? menuRef : undefined}>
         <button style={styles.menuBtn} onClick={onMenuToggle} title="Options">
           <span style={styles.dotMenu}>···</span>
         </button>
         {isMenuOpen && (
           <div style={styles.contextMenu}>
-            <button
-              style={{ ...styles.contextItem, color: '#c73434' }}
-              onClick={onLeave}
-            >
+            <button style={{ ...styles.contextItem, color: '#c73434' }} onClick={onLeave}>
               Leave Guild
             </button>
           </div>
@@ -180,140 +176,24 @@ function GuildCard({
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    backgroundColor: '#f5f5f5',
-    fontFamily: "'Prompt', sans-serif",
-  },
-  main: {
-    maxWidth: '600px',
-    margin: '0 auto',
-    padding: '32px 24px',
-  },
-  header: {
-    marginBottom: '20px',
-  },
-  titleRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    marginBottom: '14px',
-    flexWrap: 'wrap',
-  },
-  title: {
-    color: '#34C759',
-    fontWeight: 700,
-    fontSize: '26px',
-    margin: 0,
-  },
-  browseBtn: {
-    backgroundColor: '#DDFFBC',
-    color: '#52734D',
-    border: 'none',
-    borderRadius: '20px',
-    padding: '6px 16px',
-    fontFamily: "'Prompt', sans-serif",
-    fontWeight: 600,
-    fontSize: '13px',
-    cursor: 'pointer',
-    transition: 'filter 0.15s',
-  },
-  searchWrap: {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-  },
-  searchIcon: {
-    position: 'absolute',
-    left: '12px',
-    pointerEvents: 'none',
-  },
-  searchInput: {
-    width: '100%',
-    padding: '10px 14px 10px 36px',
-    border: '1.5px solid #ddd',
-    borderRadius: '10px',
-    fontFamily: "'Prompt', sans-serif",
-    fontSize: '14px',
-    outline: 'none',
-    backgroundColor: '#fff',
-    boxSizing: 'border-box',
-  },
-  list: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  card: {
-    backgroundColor: '#DDFFBC',
-    borderRadius: '12px',
-    padding: '14px 18px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
-  },
-  cardName: {
-    flex: 1,
-    fontWeight: 700,
-    fontSize: '15px',
-    color: '#222',
-  },
-  cardStats: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '20px',
-  },
-  statItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '5px',
-  },
-  statNum: {
-    fontWeight: 700,
-    fontSize: '14px',
-    color: '#333',
-  },
-  menuBtn: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    padding: '4px 8px',
-    borderRadius: '6px',
-    lineHeight: 1,
-  },
-  dotMenu: {
-    fontSize: '18px',
-    fontWeight: 700,
-    color: '#555',
-    letterSpacing: '1px',
-  },
-  contextMenu: {
-    position: 'absolute',
-    top: 'calc(100% + 4px)',
-    right: 0,
-    backgroundColor: '#fff',
-    border: '1px solid #e8e8e8',
-    borderRadius: '10px',
-    boxShadow: '0 6px 20px rgba(0,0,0,0.1)',
-    minWidth: '150px',
-    padding: '6px 0',
-    zIndex: 50,
-  },
-  contextItem: {
-    display: 'block',
-    width: '100%',
-    padding: '10px 16px',
-    background: 'none',
-    border: 'none',
-    textAlign: 'left',
-    fontFamily: "'Prompt', sans-serif",
-    fontSize: '14px',
-    cursor: 'pointer',
-  },
-  empty: {
-    color: '#888',
-    fontSize: '15px',
-    textAlign: 'center',
-    marginTop: '48px',
-  },
+  page: { minHeight: '100vh', backgroundColor: '#f5f5f5', fontFamily: "'Prompt', sans-serif" },
+  main: { maxWidth: '600px', margin: '0 auto', padding: '32px 24px' },
+  header: { marginBottom: '20px' },
+  titleRow: { display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '14px', flexWrap: 'wrap' as const },
+  title: { color: '#34C759', fontWeight: 700, fontSize: '26px', margin: 0 },
+  browseBtn: { backgroundColor: '#DDFFBC', color: '#52734D', border: 'none', borderRadius: '20px', padding: '6px 16px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '13px', cursor: 'pointer', transition: 'filter 0.15s' },
+  searchWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
+  searchIcon: { position: 'absolute', left: '12px', pointerEvents: 'none' },
+  searchInput: { width: '100%', padding: '10px 14px 10px 36px', border: '1.5px solid #ddd', borderRadius: '10px', fontFamily: "'Prompt', sans-serif", fontSize: '14px', outline: 'none', backgroundColor: '#fff', boxSizing: 'border-box' as const },
+  list: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  card: { backgroundColor: '#DDFFBC', borderRadius: '12px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer', transition: 'filter 0.15s', userSelect: 'none' as const },
+  cardName: { flex: 1, fontWeight: 700, fontSize: '15px', color: '#222' },
+  cardStats: { display: 'flex', alignItems: 'center', gap: '20px' },
+  statItem: { display: 'flex', alignItems: 'center', gap: '5px' },
+  statNum: { fontWeight: 700, fontSize: '14px', color: '#333' },
+  menuBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: '6px', lineHeight: 1 },
+  dotMenu: { fontSize: '18px', fontWeight: 700, color: '#555', letterSpacing: '1px' },
+  contextMenu: { position: 'absolute', top: 'calc(100% + 4px)', right: 0, backgroundColor: '#fff', border: '1px solid #e8e8e8', borderRadius: '10px', boxShadow: '0 6px 20px rgba(0,0,0,0.1)', minWidth: '150px', padding: '6px 0', zIndex: 50 },
+  contextItem: { display: 'block', width: '100%', padding: '10px 16px', background: 'none', border: 'none', textAlign: 'left' as const, fontFamily: "'Prompt', sans-serif", fontSize: '14px', cursor: 'pointer' },
+  empty: { color: '#888', fontSize: '15px', textAlign: 'center', marginTop: '48px' },
 };
