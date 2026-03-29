@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import api from '../api/authApi';
+import { supabase } from '../api/supabaseClient';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,7 @@ export default function GuildDashboard() {
   });
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
+  const [compressingImage, setCompressingImage] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -162,11 +164,65 @@ export default function GuildDashboard() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { setFormError('File must be under 5MB.'); return; }
+
+    const isPDF = file.type === 'application/pdf';
+
+    // PDF: cap at 500 KB to stay within DB payload limits
+    if (isPDF) {
+      if (file.size > 500 * 1024) {
+        setFormError('PDF must be under 500 KB. Large PDFs cannot be stored directly — please link to it externally.');
+        return;
+      }
+      setAttachmentFile(file);
+      const reader = new FileReader();
+      reader.onload = () => setAttachmentPreview(reader.result as string);
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    // Image: compress to max 800px wide, JPEG quality 0.7 before encoding
+    // This keeps the base64 payload well under 200 KB for typical photos
+    if (file.size > 10 * 1024 * 1024) {
+      setFormError('Image must be under 10 MB.');
+      return;
+    }
+
     setAttachmentFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setAttachmentPreview(reader.result as string);
-    reader.readAsDataURL(file);
+    setCompressingImage(true);
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      const MAX = 800;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round((height / width) * MAX); width = MAX; }
+        else                { width  = Math.round((width  / height) * MAX); height = MAX; }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Convert to JPEG at 70% quality — typical 2 MB photo becomes ~50–100 KB
+      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+      setAttachmentPreview(compressed);
+      setCompressingImage(false);
+    };
+
+    img.onerror = () => {
+      // Fallback: read raw (non-image binary that slipped through)
+      URL.revokeObjectURL(objectUrl);
+      const reader = new FileReader();
+      reader.onload = () => { setAttachmentPreview(reader.result as string); setCompressingImage(false); };
+      reader.readAsDataURL(file);
+    };
+
+    img.src = objectUrl;
   };
 
   const removeAttachment = () => {
@@ -194,19 +250,54 @@ export default function GuildDashboard() {
 
     setSubmitting(true);
     try {
+      // 1. Upload file to Supabase Storage (if any), get back a public URL
+      let attachmentUrl: string | null = null;
+      let attachmentFileName: string | null = attachmentFile?.name ?? null;
+
+      if (attachmentFile) {
+        setCompressingImage(true);
+        const ext = attachmentFile.name.split('.').pop();
+        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const filePath = `guild-${guildId}/${uniqueName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('quest-attachments')
+          .upload(filePath, attachmentFile, { upsert: false });
+
+        setCompressingImage(false);
+
+        if (uploadError) {
+          setFormError(`File upload failed: ${uploadError.message}`);
+          setSubmitting(false);
+          return;
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('quest-attachments')
+          .getPublicUrl(filePath);
+
+        attachmentUrl = urlData.publicUrl;
+      }
+
+      // 2. Submit quest with the public URL (or null)
       const payload: Record<string, unknown> = {
         title: form.title.trim(),
         category: form.category,
         description: form.description.trim(),
         questType: form.questType,
         reward: form.questType === 'PAID' ? Number(form.reward) : null,
-        attachmentName: attachmentFile?.name ?? null,
-        attachmentPath: attachmentPreview ?? null,
+        attachmentName: attachmentFileName,
+        attachmentPath: attachmentUrl,
       };
 
       const res = await api.post(`/guilds/${guildId}/quests`, payload);
       const newQuest = res.data?.data ?? res.data;
-      setQuests(prev => [newQuest, ...prev]);
+      // For images, use the Supabase public URL as the preview; for PDFs just show filename
+      const newQuestWithAttachment = {
+        ...newQuest,
+        attachmentData: attachmentUrl ?? null,
+      };
+      setQuests(prev => [newQuestWithAttachment, ...prev]);
       resetForm();
       setShowCommissionForm(false);
     } catch (err: unknown) {
@@ -373,7 +464,9 @@ export default function GuildDashboard() {
 
             <div style={s.fieldGroup}>
               <label style={s.fieldLabel}>File Attachment <span style={{ color: '#aaa', fontWeight: 400, fontSize: '12px' }}>(optional)</span></label>
-              {attachmentFile ? (
+              {compressingImage ? (
+                <div style={{ fontSize: '13px', color: '#888', padding: '8px 0', fontStyle: 'italic' }}>⏳ Processing file...</div>
+              ) : attachmentFile ? (
                 <div style={s.attachPreviewRow}>
                   <span style={{ fontSize: '18px' }}>
                     {attachmentFile.type.startsWith('image/') ? '🖼️' : '📄'}
@@ -431,7 +524,7 @@ export default function GuildDashboard() {
             <div style={s.modalFooter}>
               <button style={s.cancelBtn} onClick={() => setShowCommissionForm(false)}>Cancel</button>
               <button style={{ ...s.postQuestBtn, opacity: submitting ? 0.7 : 1 }}
-                onClick={handleSubmitQuest} disabled={submitting}>
+                onClick={handleSubmitQuest} disabled={submitting || compressingImage}>
                 {submitting ? 'Posting...' : 'Post Quest'}
               </button>
             </div>
