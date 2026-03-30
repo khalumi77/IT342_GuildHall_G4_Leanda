@@ -29,12 +29,16 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- Main (guild list) -->
+        <!-- Welcome — shown after successful login or registration -->
+        <activity
+            android:name=".WelcomeActivity"
+            android:exported="false" />
+
+        <!-- Stubs that redirect to WelcomeActivity for now -->
         <activity
             android:name=".MainActivity"
             android:exported="false" />
 
-        <!-- Skills selection (shown to new users after registration) -->
         <activity
             android:name=".SkillsActivity"
             android:exported="false" />

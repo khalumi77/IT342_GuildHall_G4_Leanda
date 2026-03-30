@@ -1,15 +1,14 @@
 package edu.cit.leanda.guildhall
 
-import androidx.appcompat.app.AppCompatActivity
+import android.content.Intent
 import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
 
-/**
- * Placeholder MainActivity — the guild list home screen.
- * Replace with full implementation later.
- */
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // TODO: setContentView(R.layout.activity_main) once implemented
+        // Redirect to WelcomeActivity for now
+        startActivity(Intent(this, WelcomeActivity::class.java))
+        finish()
     }
 }
