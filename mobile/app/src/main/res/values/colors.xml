@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary brand colors (match web) -->
+    <color name="primary_green">#34C759</color>
+    <color name="secondary_green">#52734D</color>
+    <color name="light_green">#DDFFBC</color>
+    <color name="light_green_tint">#F0FFF4</color>
+
+    <!-- Background -->
+    <color name="background">#F5F5F5</color>
+    <color name="surface_white">#FFFFFF</color>
+
+    <!-- Text -->
+    <color name="text_primary">#1A1A1A</color>
+    <color name="text_secondary">#555555</color>
+    <color name="text_hint">#AAAAAA</color>
+    <color name="text_muted">#888888</color>
+
+    <!-- Error -->
+    <color name="error_red">#C73434</color>
+    <color name="error_bg">#FFE5E5</color>
+    <color name="error_border">#F5C6C6</color>
+
+    <!-- Input borders -->
+    <color name="border_default">#DDDDDD</color>
+    <color name="border_focus">#34C759</color>
+
+    <!-- Left panel -->
+    <color name="panel_bg">#52734D</color>
+    <color name="panel_feature_bg">#4A6644</color>
+
+    <!-- Divider -->
+    <color name="divider">#E0E0E0</color>
+
+    <!-- Status bar -->
+    <color name="status_bar">#3A5C36</color>
+
+    <!-- Transparent -->
+    <color name="transparent">#00000000</color>
+
+    <color name="input_stroke_color">#CCCCCC</color>
+</resources>

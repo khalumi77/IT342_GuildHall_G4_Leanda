@@ -1,0 +1,39 @@
+<resources>
+    <string name="app_name">GuildHall</string>
+
+    <!-- Login -->
+    <string name="login_title">Log In</string>
+    <string name="login_subtitle">Welcome back, adventurer</string>
+    <string name="label_username_or_email">Username or Email</string>
+    <string name="hint_username_or_email">Enter username or email</string>
+    <string name="label_password">Password</string>
+    <string name="hint_password">Enter password</string>
+    <string name="btn_sign_in">Sign In</string>
+    <string name="btn_signing_in">Entering the Guild…</string>
+    <string name="no_account">New adventurer? </string>
+    <string name="link_register">Sign up instead</string>
+    <string name="divider_or">or</string>
+    <string name="btn_google_sign_in">Continue with Google</string>
+
+    <!-- Register -->
+    <string name="register_title">Register</string>
+    <string name="register_subtitle">Join the guild</string>
+    <string name="label_email">Email</string>
+    <string name="hint_email">Enter email</string>
+    <string name="label_username">Username</string>
+    <string name="hint_username">Enter username</string>
+    <string name="btn_sign_up">Sign Up</string>
+    <string name="btn_enrolling">Enrolling…</string>
+    <string name="have_account">Already have an account? </string>
+    <string name="link_login">Sign in instead</string>
+
+    <!-- Validation errors -->
+    <string name="error_field_required">This field is required</string>
+    <string name="error_invalid_email">Enter a valid email address</string>
+    <string name="error_username_short">Must be at least 3 characters</string>
+    <string name="error_password_short">Must be at least 8 characters</string>
+
+    <!-- Generic -->
+    <string name="guildhall">GuildHall</string>
+    <string name="logo_tagline">Your community quest board</string>
+</resources>
