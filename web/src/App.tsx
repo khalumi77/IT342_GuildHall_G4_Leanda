@@ -12,6 +12,7 @@ import Profile from './pages/Profile';
 import UserProfileView from './pages/UserProfileView';
 import GuildDashboard from './pages/GuildDashboard';
 import CommissionedQuests from './pages/CommissionedQuests';
+import GoogleCallback from './pages/GoogleCallback';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
@@ -53,24 +54,18 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
-
           <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
-
+          <Route path="/auth/google/success" element={<GoogleCallback />} />
           <Route path="/skills"  element={<PrivateRoute><SkillsSelection /></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
-
           <Route path="/guilds"              element={<PrivateRoute><Guilds /></PrivateRoute>} />
           <Route path="/guilds/browse"       element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
           <Route path="/guilds/:guildId"     element={<PrivateRoute><GuildDashboard /></PrivateRoute>} />
-
           <Route path="/quests/commissioned" element={<PrivateRoute><CommissionedQuests /></PrivateRoute>} />
-          {/* Accepted Quests — placeholder redirect until implemented */}
           <Route path="/quests/accepted"     element={<PrivateRoute><Navigate to="/guilds" replace /></PrivateRoute>} />
-
           <Route path="/admin"               element={<AdminRoute><AdminDashboard /></AdminRoute>} />
           <Route path="/admin/users/:userId" element={<AdminRoute><UserProfileView /></AdminRoute>} />
-
           <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />
           <Route path="*"          element={<Navigate to="/login" replace />} />
         </Routes>

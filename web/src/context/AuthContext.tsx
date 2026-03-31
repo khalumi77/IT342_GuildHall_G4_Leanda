@@ -14,10 +14,9 @@ interface AuthContextType {
   register: (email: string, username: string, password: string) => Promise<UserDto>;
   saveSkills: (skills: string[]) => Promise<void>;
   logout: () => void;
-  googleLogin: (idToken: string) => Promise<UserDto>;
+  // Called by GoogleCallback page after backend-driven OAuth2 completes
+  setTokenFromCallback: (token: string) => Promise<UserDto | null>;
   setTransitioning: (v: boolean) => void;
-  // Allows profile page to push updates (bio, picture) back into the global user state
-  // so the navbar reflects changes immediately without a page reload.
   updateUserState: (partial: Partial<UserDto>) => void;
 }
 
@@ -36,13 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (savedToken) {
       setToken(savedToken);
       authApi.me()
-        .then(res => {
-          setUser(res.data.data.user);
-        })
-        .catch(() => {
-          localStorage.removeItem('guildhall_token');
-          setToken(null);
-        })
+        .then(res => setUser(res.data.data.user))
+        .catch(() => { localStorage.removeItem('guildhall_token'); setToken(null); })
         .finally(() => setIsLoading(false));
     } else {
       setIsLoading(false);
@@ -94,24 +88,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  const googleLogin = async (idToken: string): Promise<UserDto> => {
-    setAuthenticating(true);
+  /**
+   * Used by the GoogleCallback page.
+   * Stores the JWT returned by the backend redirect, then fetches the full
+   * user profile from /auth/me to populate the auth context.
+   */
+  const setTokenFromCallback = async (newToken: string): Promise<UserDto | null> => {
+    persistToken(newToken);
     try {
-      const res = await authApi.googleLogin(idToken);
-      const { token: t, user: u } = res.data.data;
-      persistToken(t);
+      const res = await authApi.me();
+      const u = res.data.data.user;
       setUser(u);
       return u;
-    } finally {
-      setAuthenticating(false);
+    } catch {
+      localStorage.removeItem('guildhall_token');
+      setToken(null);
+      return null;
     }
   };
 
-  /**
-   * Merges partial user data into the global user state.
-   * Call this from the Profile page after saving bio or profile picture
-   * so the Navbar immediately reflects the change.
-   */
   const updateUserState = (partial: Partial<UserDto>) => {
     setUser(prev => prev ? { ...prev, ...partial } : prev);
   };
@@ -119,8 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, token, isLoading, authenticating, transitioning,
-      login, register, saveSkills, logout, googleLogin,
-      setTransitioning, updateUserState,
+      login, register, saveSkills, logout,
+      setTokenFromCallback, setTransitioning, updateUserState,
     }}>
       {children}
     </AuthContext.Provider>

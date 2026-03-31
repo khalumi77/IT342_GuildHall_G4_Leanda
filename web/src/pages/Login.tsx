@@ -1,13 +1,12 @@
 // src/pages/Login.tsx
-// Only change from original: after login, guildmasters go to /admin instead of /guilds
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { GoogleLogin } from '@react-oauth/google';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, googleLogin, setTransitioning } = useAuth();
+  const { login } = useAuth();
 
   const [form, setForm] = useState({ username: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -21,10 +20,8 @@ export default function Login() {
     return e;
   };
 
-  // Helper: where does this user go after login?
-  const getRedirect = (role: string, isNewUser: boolean) => {
+  const getRedirect = (role: string) => {
     if (role === 'ROLE_GUILDMASTER') return '/admin';
-    if (isNewUser) return '/skills';
     return '/guilds';
   };
 
@@ -36,22 +33,11 @@ export default function Login() {
     setIsLoading(true);
     try {
       const user = await login(form.username, form.password);
-      navigate(getRedirect(user.role, false));
+      navigate(getRedirect(user.role));
     } catch (err: any) {
       setServerError(err?.response?.data?.error?.message || 'Invalid credentials. Please try again.');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleGoogleSuccess = async (credentialResponse: any) => {
-    setServerError('');
-    try {
-      const user = await googleLogin(credentialResponse.credential);
-      setTransitioning(true);
-      navigate(getRedirect(user.role, user.newUser));
-    } catch {
-      setServerError('Google Sign-In failed. Please try again.');
     }
   };
 
@@ -95,12 +81,12 @@ export default function Login() {
             New adventurer? <Link to="/register" style={styles.link}>Sign up instead</Link>
           </p>
           <div style={styles.divider}>
-            <span style={styles.dividerLine} /><span style={styles.dividerLabel}>or</span><span style={styles.dividerLine} />
+            <span style={styles.dividerLine} />
+            <span style={styles.dividerLabel}>or</span>
+            <span style={styles.dividerLine} />
           </div>
           <div style={styles.googleWrap}>
-            <GoogleLogin onSuccess={handleGoogleSuccess}
-              onError={() => setServerError('Google Sign-In failed. Please try again.')}
-              width="380" text="signin_with" shape="rectangular" theme="outline" />
+            <GoogleSignInButton mode="signin" />
           </div>
         </div>
       </div>
@@ -145,7 +131,7 @@ const styles: Record<string, React.CSSProperties> = {
   serverError: { backgroundColor: '#ffe5e5', color: '#c73434', border: '1px solid #f5c6c6', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', marginBottom: '16px' },
   fieldGroup: { marginBottom: '18px' },
   label: { display: 'block', color: '#34C759', fontWeight: 600, fontSize: '14px', marginBottom: '6px' },
-  input: { width: '100%', padding: '10px 14px', border: '1.5px solid #ddd', borderRadius: '8px', fontSize: '14px', outline: 'none', boxSizing: 'border-box', fontFamily: "'Prompt', sans-serif", transition: 'border-color 0.2s' },
+  input: { width: '100%', padding: '10px 14px', border: '1.5px solid #ddd', borderRadius: '8px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'Prompt', sans-serif", transition: 'border-color 0.2s' },
   inputError: { borderColor: '#c73434' },
   errorMsg: { color: '#c73434', fontSize: '12px', marginTop: '4px', display: 'block' },
   btn: { width: '100%', padding: '13px', backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '50px', fontWeight: 700, fontSize: '16px', cursor: 'pointer', marginTop: '8px', fontFamily: "'Prompt', sans-serif" },

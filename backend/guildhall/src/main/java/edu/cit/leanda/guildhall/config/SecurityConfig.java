@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -30,6 +31,7 @@ import java.util.List;
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
+@PropertySource("classpath:.env")
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
@@ -49,9 +51,12 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/v1/auth/register",
                     "/api/v1/auth/login",
-                    "/api/v1/auth/google"
+                    // Backend-driven Google OAuth2 — both endpoints must be public
+                    // /init  → browser visits this to start the flow
+                    // /callback → Google redirects here with the auth code
+                    "/api/v1/auth/google/init",
+                    "/api/v1/auth/google/callback"
                 ).permitAll()
-                // Admin endpoints locked to ROLE_GUILDMASTER at filter level
                 .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_GUILDMASTER")
                 .anyRequest().authenticated()
             )
