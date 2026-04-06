@@ -1,10 +1,12 @@
 package edu.cit.leanda.guildhall.controller;
 
+import edu.cit.leanda.guildhall.decorator.ApiResponseWrapper;
 import edu.cit.leanda.guildhall.entity.Guild;
 import edu.cit.leanda.guildhall.entity.Membership;
 import edu.cit.leanda.guildhall.entity.User;
 import edu.cit.leanda.guildhall.enums.MembershipStatus;
 import edu.cit.leanda.guildhall.enums.Role;
+import edu.cit.leanda.guildhall.factory.UserDtoFactory;
 import edu.cit.leanda.guildhall.repository.GuildRepository;
 import edu.cit.leanda.guildhall.repository.MembershipRepository;
 import edu.cit.leanda.guildhall.repository.UserRepository;
@@ -15,16 +17,18 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-// NOTE: Role enforcement is done at the SecurityConfig level via
-//   .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_GUILDMASTER")
-// We deliberately do NOT use class-level @PreAuthorize here because it can
-// interfere with the JWT filter chain on some Spring Boot 3.x configurations.
-
+/**
+ * AdminController — refactored with Decorator + Factory Method patterns.
+ *
+ * Changes from original:
+ *  - private wrap()          → injected ApiResponseWrapper (Decorator Pattern)
+ *  - private calculateRank() → delegated to UserDtoFactory  (Factory Method Pattern)
+ *    Both helpers were duplicated from other files; they now have a single home.
+ */
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
@@ -33,11 +37,9 @@ public class AdminController {
     private final GuildRepository guildRepository;
     private final UserRepository userRepository;
     private final MembershipRepository membershipRepository;
+    private final ApiResponseWrapper responseWrapper;  // Decorator Pattern
+    private final UserDtoFactory userDtoFactory;       // Factory Method Pattern
 
-    /**
-     * GET /api/v1/admin/guilds
-     * Returns all guilds with member counts.
-     */
     @GetMapping("/guilds")
     public ResponseEntity<?> getAllGuilds() {
         List<Map<String, Object>> guilds = guildRepository.findAll().stream()
@@ -56,13 +58,9 @@ public class AdminController {
                 })
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(wrap(guilds));
+        return ResponseEntity.ok(responseWrapper.ok(guilds));  // Decorator Pattern
     }
 
-    /**
-     * POST /api/v1/admin/guilds
-     * Creates a new guild.
-     */
     @PostMapping("/guilds")
     public ResponseEntity<?> createGuild(
             @RequestBody Map<String, String> body,
@@ -72,17 +70,13 @@ public class AdminController {
         String description = body.getOrDefault("description", "");
 
         if (name == null || name.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "error", Map.of("message", "Guild name is required")
-            ));
+            return ResponseEntity.badRequest()
+                    .body(responseWrapper.error("Guild name is required")); // Decorator Pattern
         }
 
         if (guildRepository.findByName(name.trim()).isPresent()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "success", false,
-                    "error", Map.of("message", "A guild with this name already exists")
-            ));
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(responseWrapper.error("A guild with this name already exists")); // Decorator Pattern
         }
 
         User creator = userRepository.findByEmail(userDetails.getUsername())
@@ -95,7 +89,6 @@ public class AdminController {
                 .build();
         guild = guildRepository.save(guild);
 
-        // Auto-enroll the Guildmaster
         membershipRepository.save(Membership.builder()
                 .user(creator)
                 .guild(guild)
@@ -103,7 +96,7 @@ public class AdminController {
                 .build());
 
         final Long guildId = guild.getId();
-        return ResponseEntity.status(HttpStatus.CREATED).body(wrap(Map.of(
+        return ResponseEntity.status(HttpStatus.CREATED).body(responseWrapper.ok(Map.of( // Decorator Pattern
                 "id", guildId,
                 "name", guild.getName(),
                 "description", guild.getDescription() != null ? guild.getDescription() : "",
@@ -112,10 +105,6 @@ public class AdminController {
         )));
     }
 
-    /**
-     * PUT /api/v1/admin/guilds/{id}
-     * Renames a guild.
-     */
     @PutMapping("/guilds/{id}")
     public ResponseEntity<?> renameGuild(
             @PathVariable Long id,
@@ -123,10 +112,8 @@ public class AdminController {
 
         String newName = body.get("name");
         if (newName == null || newName.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "error", Map.of("message", "Name cannot be blank")
-            ));
+            return ResponseEntity.badRequest()
+                    .body(responseWrapper.error("Name cannot be blank")); // Decorator Pattern
         }
 
         Guild guild = guildRepository.findById(id)
@@ -135,121 +122,83 @@ public class AdminController {
         guild.setName(newName.trim());
         guildRepository.save(guild);
 
-        return ResponseEntity.ok(wrap(Map.of("id", guild.getId(), "name", guild.getName())));
+        return ResponseEntity.ok(responseWrapper.ok(Map.of("id", guild.getId(), "name", guild.getName()))); // Decorator Pattern
     }
 
-    /**
-     * DELETE /api/v1/admin/guilds/{id}
-     * Deletes a guild and its memberships.
-     */
     @DeleteMapping("/guilds/{id}")
     public ResponseEntity<?> deleteGuild(@PathVariable Long id) {
         Guild guild = guildRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Guild not found"));
 
-        // Remove memberships to avoid FK violations
         List<Membership> memberships = membershipRepository.findAll().stream()
                 .filter(m -> m.getGuild().getId().equals(id))
                 .collect(Collectors.toList());
         membershipRepository.deleteAll(memberships);
-
         guildRepository.delete(guild);
 
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "data", Map.of("message", "Guild disbanded"),
-                "timestamp", Instant.now().toString()
-        ));
+        return ResponseEntity.ok(responseWrapper.ok(Map.of("message", "Guild disbanded"))); // Decorator Pattern
     }
 
-    /**
-     * GET /api/v1/admin/users
-     * Returns all users.
-     */
     @GetMapping("/users")
     public ResponseEntity<?> getAllUsers() {
         List<Map<String, Object>> users = userRepository.findAll().stream()
                 .map(u -> {
+                    int level = u.getLevel() != null ? u.getLevel() : 1;
                     Map<String, Object> m = new java.util.HashMap<>();
                     m.put("id", u.getId());
                     m.put("username", u.getUsername());
                     m.put("email", u.getEmail());
                     m.put("role", u.getRole().name());
-                    m.put("level", u.getLevel() != null ? u.getLevel() : 1);
+                    m.put("level", level);
                     m.put("xp", u.getXp() != null ? u.getXp() : 0);
-                    m.put("rank", calculateRank(u.getLevel() != null ? u.getLevel() : 1));
+                    m.put("rank", userDtoFactory.calculateRank(level)); // Factory Method Pattern
                     m.put("profilePictureUrl", u.getProfilePictureUrl() != null ? u.getProfilePictureUrl() : "");
                     return m;
                 })
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(wrap(users));
+        return ResponseEntity.ok(responseWrapper.ok(users)); // Decorator Pattern
     }
 
-    /**
-     * GET /api/v1/admin/users/{id}
-     * Returns a single user's full profile for admin viewing.
-     */
     @GetMapping("/users/{id}")
     public ResponseEntity<?> getUserById(@PathVariable Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        int level = user.getLevel() != null ? user.getLevel() : 1;
 
         Map<String, Object> data = new java.util.HashMap<>();
         data.put("id", user.getId());
         data.put("username", user.getUsername());
         data.put("email", user.getEmail());
         data.put("role", user.getRole().name());
-        data.put("level", user.getLevel() != null ? user.getLevel() : 1);
+        data.put("level", level);
         data.put("xp", user.getXp() != null ? user.getXp() : 0);
-        data.put("rank", calculateRank(user.getLevel() != null ? user.getLevel() : 1));
+        data.put("rank", userDtoFactory.calculateRank(level)); // Factory Method Pattern
         data.put("skills", user.getSkills() != null ? user.getSkills() : java.util.List.of());
         data.put("bio", user.getBio() != null ? user.getBio() : "");
         data.put("profilePictureUrl", user.getProfilePictureUrl() != null ? user.getProfilePictureUrl() : "");
         data.put("googleSub", user.getGoogleSub());
 
-        return ResponseEntity.ok(wrap(data));
+        return ResponseEntity.ok(responseWrapper.ok(data)); // Decorator Pattern
     }
 
-    /**
-     * POST /api/v1/admin/users/{id}/ban
-     * Removes a user from the system.
-     */
     @PostMapping("/users/{id}/ban")
     public ResponseEntity<?> banUser(@PathVariable Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         if (user.getRole() == Role.ROLE_GUILDMASTER) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "error", Map.of("message", "Cannot ban a Guildmaster")
-            ));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(responseWrapper.error("Cannot ban a Guildmaster")); // Decorator Pattern
         }
 
-        // Remove memberships first
         List<Membership> memberships = membershipRepository.findAll().stream()
                 .filter(m -> m.getUser().getId().equals(id))
                 .collect(Collectors.toList());
         membershipRepository.deleteAll(memberships);
-
         userRepository.delete(user);
 
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "data", Map.of("message", "User restricted"),
-                "timestamp", Instant.now().toString()
-        ));
-    }
-
-    private Map<String, Object> wrap(Object data) {
-        return Map.of("success", true, "data", data, "timestamp", Instant.now().toString());
-    }
-
-    private String calculateRank(int xp) {
-        if (xp >= 5000) return "Mithril";
-        if (xp >= 2000) return "Gold";
-        if (xp >= 500)  return "Silver";
-        return "Bronze";
+        return ResponseEntity.ok(responseWrapper.ok(Map.of("message", "User restricted"))); // Decorator Pattern
     }
 }
