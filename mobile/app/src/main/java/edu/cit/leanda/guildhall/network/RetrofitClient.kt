@@ -17,7 +17,7 @@ object RetrofitClient {
 
     // ── ⚠️  Im using my laptop's LAN IP since I'm running on a physical device ──
     //
-    private const val BASE_URL = "http://192.168.1.100:8080/api/v1/"
+    private const val BASE_URL = "http://192.168.1.10:8080/api/v1/"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY   // change to NONE for release
