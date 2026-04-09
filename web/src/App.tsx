@@ -12,6 +12,7 @@ import Profile from './pages/Profile';
 import UserProfileView from './pages/UserProfileView';
 import GuildDashboard from './pages/GuildDashboard';
 import CommissionedQuests from './pages/CommissionedQuests';
+import AcceptedQuests from './pages/AcceptedQuests';
 import GoogleCallback from './pages/GoogleCallback';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -63,7 +64,7 @@ export default function App() {
           <Route path="/guilds/browse"       element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
           <Route path="/guilds/:guildId"     element={<PrivateRoute><GuildDashboard /></PrivateRoute>} />
           <Route path="/quests/commissioned" element={<PrivateRoute><CommissionedQuests /></PrivateRoute>} />
-          <Route path="/quests/accepted"     element={<PrivateRoute><Navigate to="/guilds" replace /></PrivateRoute>} />
+          <Route path="/quests/accepted"     element={<PrivateRoute><AcceptedQuests /></PrivateRoute>} />
           <Route path="/admin"               element={<AdminRoute><AdminDashboard /></AdminRoute>} />
           <Route path="/admin/users/:userId" element={<AdminRoute><UserProfileView /></AdminRoute>} />
           <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />

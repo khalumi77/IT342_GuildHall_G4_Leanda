@@ -25,14 +25,44 @@ interface Quest {
   questType: 'VOLUNTEER' | 'PAID';
   reward: number | null;
   xpReward: number;
-  status: string;
+  status: 'OPEN' | 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'PENDING_PAYMENT';
   postedBy: string;
+  posterId: number;
   createdAt: string | null;
   attachmentName: string | null;
   attachmentData: string | null;
+  helperUsername: string | null;
+  helperId: number | null;
+  acceptedByMe: boolean;
 }
 
 const CATEGORIES = ['Design', 'Academic', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
+
+// ── Status config ─────────────────────────────────────────────────────────────
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  OPEN:      { label: 'Open',      color: '#166534', bg: '#dcfce7' },
+  PENDING:   { label: 'Pending',   color: '#92400e', bg: '#fef3c7' },
+  COMPLETED: { label: 'Completed', color: '#1e3a5f', bg: '#dbeafe' },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] ?? { label: status, color: '#555', bg: '#eee' };
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: '4px',
+      backgroundColor: cfg.bg, color: cfg.color,
+      fontSize: '11px', fontWeight: 700,
+      padding: '2px 9px', borderRadius: '20px',
+      letterSpacing: '0.4px', textTransform: 'uppercase',
+    }}>
+      {status === 'OPEN' && '●  '}
+      {status === 'PENDING' && '◐  '}
+      {status === 'COMPLETED' && '✓  '}
+      {cfg.label}
+    </span>
+  );
+}
 
 // ── Daily quote helpers ───────────────────────────────────────────────────────
 
@@ -58,176 +88,75 @@ function setCachedQuote(q: DailyQuote) {
   try { sessionStorage.setItem(QUOTE_CACHE_KEY, JSON.stringify(q)); } catch { /**/ }
 }
 
-// ── Image Lightbox Component ──────────────────────────────────────────────────
+// ── Image Lightbox ────────────────────────────────────────────────────────────
 
-interface LightboxProps {
-  src: string;
-  alt: string;
-  onClose: () => void;
-}
-
-function ImageLightbox({ src, alt, onClose }: LightboxProps) {
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
   const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [posStart, setPosStart] = useState({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  // Prevent body scroll
-  useEffect(() => {
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
+    return () => { window.removeEventListener('keydown', handler); document.body.style.overflow = ''; };
+  }, [onClose]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     setScale(s => Math.min(8, Math.max(0.5, s - e.deltaY * 0.001)));
   }, []);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    setDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setPosStart({ ...pos });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragging) return;
-    setPos({
-      x: posStart.x + (e.clientX - dragStart.x),
-      y: posStart.y + (e.clientY - dragStart.y),
-    });
-  };
-
-  const handleMouseUp = () => setDragging(false);
-
-  const handleZoomIn  = () => setScale(s => Math.min(8, s + 0.4));
-  const handleZoomOut = () => setScale(s => Math.max(0.5, s - 0.4));
-  const handleReset   = () => { setScale(1); setPos({ x: 0, y: 0 }); };
-
   return (
     <div style={lb.overlay} onClick={onClose}>
-      {/* Controls */}
       <div style={lb.controls} onClick={e => e.stopPropagation()}>
-        <button style={lb.ctrlBtn} onClick={handleZoomOut} title="Zoom out">−</button>
+        <button style={lb.ctrlBtn} onClick={() => setScale(s => Math.max(0.5, s - 0.4))}>−</button>
         <span style={lb.zoomLabel}>{Math.round(scale * 100)}%</span>
-        <button style={lb.ctrlBtn} onClick={handleZoomIn} title="Zoom in">+</button>
-        <button style={lb.ctrlBtn} onClick={handleReset} title="Reset">↺</button>
-        <button style={{ ...lb.ctrlBtn, marginLeft: '8px' }} onClick={onClose} title="Close">✕</button>
+        <button style={lb.ctrlBtn} onClick={() => setScale(s => Math.min(8, s + 0.4))}>+</button>
+        <button style={lb.ctrlBtn} onClick={() => { setScale(1); setPos({ x: 0, y: 0 }); }}>↺</button>
+        <button style={{ ...lb.ctrlBtn, marginLeft: '8px' }} onClick={onClose}>✕</button>
       </div>
-
-      {/* Image canvas */}
-      <div
-        ref={containerRef}
-        style={{
-          ...lb.canvas,
-          cursor: dragging ? 'grabbing' : 'grab',
-        }}
+      <div style={{ ...lb.canvas, cursor: dragging ? 'grabbing' : 'grab' }}
         onClick={e => e.stopPropagation()}
         onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        <img
-          src={src}
-          alt={alt}
-          draggable={false}
-          style={{
-            transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
-            transition: dragging ? 'none' : 'transform 0.15s ease',
-            maxWidth: '90vw',
-            maxHeight: '85vh',
-            objectFit: 'contain',
-            borderRadius: '6px',
-            userSelect: 'none',
-            pointerEvents: 'none',
-          }}
-        />
+        onMouseDown={e => { setDragging(true); setDragStart({ x: e.clientX, y: e.clientY }); setPosStart({ ...pos }); }}
+        onMouseMove={e => { if (!dragging) return; setPos({ x: posStart.x + (e.clientX - dragStart.x), y: posStart.y + (e.clientY - dragStart.y) }); }}
+        onMouseUp={() => setDragging(false)}
+        onMouseLeave={() => setDragging(false)}>
+        <img src={src} alt={alt} draggable={false} style={{
+          transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
+          transition: dragging ? 'none' : 'transform 0.15s ease',
+          maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain',
+          borderRadius: '6px', userSelect: 'none', pointerEvents: 'none',
+        }} />
       </div>
-
       <div style={lb.hint}>Scroll to zoom · Drag to pan · Esc to close</div>
     </div>
   );
 }
 
 const lb: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: 'fixed', inset: 0, zIndex: 1000,
-    backgroundColor: 'rgba(0,0,0,0.92)',
-    display: 'flex', flexDirection: 'column',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  controls: {
-    position: 'fixed', top: '16px', right: '16px',
-    display: 'flex', alignItems: 'center', gap: '6px',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    backdropFilter: 'blur(8px)',
-    borderRadius: '12px', padding: '8px 12px',
-    zIndex: 1001,
-  },
-  ctrlBtn: {
-    background: 'rgba(255,255,255,0.15)',
-    border: '1px solid rgba(255,255,255,0.25)',
-    borderRadius: '8px',
-    color: '#fff',
-    width: '34px', height: '34px',
-    fontSize: '16px', fontWeight: 700,
-    cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    transition: 'background 0.15s',
-    fontFamily: 'monospace',
-  },
-  zoomLabel: {
-    color: '#fff', fontSize: '13px', fontWeight: 600,
-    minWidth: '44px', textAlign: 'center',
-    fontFamily: "'Prompt', sans-serif",
-  },
-  canvas: {
-    flex: 1,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    width: '100%', overflow: 'hidden',
-  },
-  hint: {
-    position: 'fixed', bottom: '16px',
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: '12px',
-    fontFamily: "'Prompt', sans-serif",
-    letterSpacing: '0.3px',
-    pointerEvents: 'none',
-  },
+  overlay: { position: 'fixed', inset: 0, zIndex: 1000, backgroundColor: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
+  controls: { position: 'fixed', top: '16px', right: '16px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)', borderRadius: '12px', padding: '8px 12px', zIndex: 1001 },
+  ctrlBtn: { background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '8px', color: '#fff', width: '34px', height: '34px', fontSize: '16px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' },
+  zoomLabel: { color: '#fff', fontSize: '13px', fontWeight: 600, minWidth: '44px', textAlign: 'center', fontFamily: "'Prompt', sans-serif" },
+  canvas: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', overflow: 'hidden' },
+  hint: { position: 'fixed', bottom: '16px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontFamily: "'Prompt', sans-serif", pointerEvents: 'none' },
 };
 
-// ── PDF Attachment helpers ────────────────────────────────────────────────────
+// ── Attachment helpers ────────────────────────────────────────────────────────
 
-function isImage(name: string | null) {
-  return !!name?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-}
-function isPdf(name: string | null) {
-  return !!name?.match(/\.pdf$/i);
-}
-
+function isImage(name: string | null) { return !!name?.match(/\.(jpg|jpeg|png|gif|webp)$/i); }
+function isPdf(name: string | null) { return !!name?.match(/\.pdf$/i); }
 function downloadPdf(url: string, filename: string) {
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const a = document.createElement('a'); a.href = url; a.download = filename;
+  a.target = '_blank'; a.rel = 'noopener noreferrer';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
-// ── Quest Icon SVG ────────────────────────────────────────────────────────────
+// ── Quest Icon ────────────────────────────────────────────────────────────────
 
 function QuestIcon({ size = 40 }: { size?: number }) {
   return (
@@ -244,6 +173,52 @@ function QuestIcon({ size = 40 }: { size?: number }) {
   );
 }
 
+// ── Accept Confirmation Popup ─────────────────────────────────────────────────
+
+function AcceptedPopup({ quest, onOpenChat, onClose }: {
+  quest: Quest; onOpenChat: () => void; onClose: () => void;
+}) {
+  return (
+    <div style={ap.overlay} onClick={onClose}>
+      <div style={ap.card} onClick={e => e.stopPropagation()}>
+        <div style={ap.celebration}>⚔️</div>
+        <div style={ap.title}>Quest Accepted!</div>
+        <div style={ap.subtitle}>
+          You've taken on <strong>"{quest.title}"</strong>.<br />
+          It will appear in your Accepted Quests page.
+        </div>
+        <div style={ap.rule}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          You can hold up to <strong>3 active quests</strong> per guild at a time.
+        </div>
+        <div style={ap.actions}>
+          <button style={ap.chatBtn} onClick={onOpenChat}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Open Chat
+          </button>
+          <button style={ap.nowBtn} onClick={onClose}>Not Now</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ap: Record<string, React.CSSProperties> = {
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: '24px' },
+  card: { backgroundColor: '#fff', borderRadius: '20px', padding: '32px 28px', maxWidth: '400px', width: '100%', boxShadow: '0 24px 80px rgba(0,0,0,0.25)', textAlign: 'center', fontFamily: "'Prompt', sans-serif" },
+  celebration: { fontSize: '52px', marginBottom: '12px' },
+  title: { fontWeight: 700, fontSize: '22px', color: '#166534', marginBottom: '8px' },
+  subtitle: { fontSize: '14px', color: '#444', lineHeight: '1.6', marginBottom: '16px' },
+  rule: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#fef3c7', border: '1px solid #fde68a', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#92400e', marginBottom: '24px' },
+  actions: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  chatBtn: { backgroundColor: '#52734D', color: '#fff', border: 'none', borderRadius: '12px', padding: '12px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
+  nowBtn: { background: 'none', border: '1.5px solid #ddd', borderRadius: '12px', padding: '11px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px', color: '#666', cursor: 'pointer' },
+};
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function GuildDashboard() {
@@ -258,6 +233,7 @@ export default function GuildDashboard() {
   const [quote, setQuote] = useState<{ text: string; author: string } | null>(getCachedQuote);
   const [quoteLoading, setQuoteLoading] = useState(quote === null);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'PENDING' | 'COMPLETED'>('ALL');
 
   // Commission form
   const [showCommissionForm, setShowCommissionForm] = useState(false);
@@ -271,6 +247,13 @@ export default function GuildDashboard() {
 
   // Quest detail modal
   const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
+
+  // Accept flow
+  const [accepting, setAccepting] = useState<number | null>(null);
+  const [acceptedQuest, setAcceptedQuest] = useState<Quest | null>(null); // triggers popup
+
+  // Complete flow
+  const [completing, setCompleting] = useState<number | null>(null);
 
   // Lightbox
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -297,13 +280,64 @@ export default function GuildDashboard() {
         const data = res.data?.data ?? res.data;
         if (data?.text && data?.author) {
           const fresh = { text: data.text, author: data.author, date: getTodayString() };
-          setCachedQuote(fresh);
-          setQuote(fresh);
-        } else throw new Error('bad response');
+          setCachedQuote(fresh); setQuote(fresh);
+        } else throw new Error('bad');
       })
-      .catch(() => { setQuote(FALLBACK_QUOTES[new Date().getDate() % FALLBACK_QUOTES.length]); })
+      .catch(() => setQuote(FALLBACK_QUOTES[new Date().getDate() % FALLBACK_QUOTES.length]))
       .finally(() => setQuoteLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
+
+  // ── Accept quest ──────────────────────────────────────────────────────────
+
+  const handleAcceptQuest = async (questId: number) => {
+    setAccepting(questId);
+    try {
+      const res = await api.post(`/guilds/${guildId}/quests/${questId}/accept`);
+      const updated: Quest = res.data?.data ?? res.data;
+      setQuests(prev => prev.map(q => q.id === questId ? { ...q, ...updated } : q));
+      setSelectedQuest(null);
+      // Show celebration popup
+      setAcceptedQuest(updated);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      alert(e?.response?.data?.error?.message || 'Failed to accept quest.');
+    } finally {
+      setAccepting(null);
+    }
+  };
+
+  // ── Complete quest (commissioner) ─────────────────────────────────────────
+
+  const handleCompleteQuest = async (questId: number) => {
+    if (!window.confirm('Mark this quest as completed? The helper will be credited.')) return;
+    setCompleting(questId);
+    try {
+      const res = await api.post(`/guilds/${guildId}/quests/${questId}/complete`);
+      const updated: Quest = res.data?.data ?? res.data;
+      setQuests(prev => prev.map(q => q.id === questId ? { ...q, ...updated } : q));
+      setSelectedQuest(prev => prev?.id === questId ? { ...prev, ...updated } : prev);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      alert(e?.response?.data?.error?.message || 'Failed to mark quest complete.');
+    } finally {
+      setCompleting(null);
+    }
+  };
+
+  // ── Delete quest ──────────────────────────────────────────────────────────
+
+  const handleDeleteQuest = async (questId: number) => {
+    try {
+      await api.delete(`/guilds/${guildId}/quests/${questId}`);
+      setQuests(prev => prev.filter(q => q.id !== questId));
+      setSelectedQuest(null);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      alert(e?.response?.data?.error?.message || 'Failed to delete quest.');
+    }
+  };
+
+  // ── Commission form ───────────────────────────────────────────────────────
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -395,22 +429,15 @@ export default function GuildDashboard() {
     } finally { setSubmitting(false); }
   };
 
-  const handleDeleteQuest = async (questId: number) => {
-    try {
-      await api.delete(`/guilds/${guildId}/quests/${questId}`);
-      setQuests(prev => prev.filter(q => q.id !== questId));
-      setSelectedQuest(null);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: { message?: string } } } };
-      alert(e?.response?.data?.error?.message || 'Failed to delete quest.');
-    }
-  };
+  // ── Filter quests ─────────────────────────────────────────────────────────
 
-  const filtered = quests.filter(q =>
-    q.title.toLowerCase().includes(search.toLowerCase()) ||
-    q.category.toLowerCase().includes(search.toLowerCase()) ||
-    q.description.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = quests.filter(q => {
+    const matchSearch = q.title.toLowerCase().includes(search.toLowerCase()) ||
+      q.category.toLowerCase().includes(search.toLowerCase()) ||
+      q.description.toLowerCase().includes(search.toLowerCase());
+    const matchStatus = statusFilter === 'ALL' || q.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
 
   if (isLoading) return <div style={s.page}><Navbar /><div style={s.centered}>Loading quest board...</div></div>;
   if (notFound || !guild) return (
@@ -424,14 +451,21 @@ export default function GuildDashboard() {
 
   return (
     <div style={s.page}>
-      <style>{`
-        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-      `}</style>
+      <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
       <Navbar />
 
-      {/* Image Lightbox */}
-      {lightboxSrc && (
-        <ImageLightbox src={lightboxSrc} alt={lightboxAlt} onClose={() => setLightboxSrc(null)} />
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} alt={lightboxAlt} onClose={() => setLightboxSrc(null)} />}
+
+      {/* Accept celebration popup */}
+      {acceptedQuest && (
+        <AcceptedPopup
+          quest={acceptedQuest}
+          onOpenChat={() => {
+            setAcceptedQuest(null);
+            alert('Chat feature coming soon!');
+          }}
+          onClose={() => setAcceptedQuest(null)}
+        />
       )}
 
       <main style={s.main}>
@@ -456,11 +490,23 @@ export default function GuildDashboard() {
                 + Commission Quest
               </button>
             </div>
-            <div style={s.searchWrap}>
-              <svg style={s.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              <input style={s.searchInput} placeholder="Search quests" value={search} onChange={e => setSearch(e.target.value)} />
+
+            {/* Search + status filter row */}
+            <div style={s.filterRow}>
+              <div style={s.searchWrap}>
+                <svg style={s.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input style={s.searchInput} placeholder="Search quests" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <div style={s.statusFilters}>
+                {(['ALL', 'OPEN', 'PENDING', 'COMPLETED'] as const).map(f => (
+                  <button key={f} style={{ ...s.filterChip, ...(statusFilter === f ? s.filterChipActive : {}) }}
+                    onClick={() => setStatusFilter(f)}>
+                    {f === 'ALL' ? 'All' : STATUS_CONFIG[f]?.label ?? f}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -476,9 +522,14 @@ export default function GuildDashboard() {
                 <QuestCard
                   key={quest.id}
                   quest={quest}
-                  currentUser={user?.username ?? ''}
+                  currentUserId={user?.id ?? 0}
+                  currentUsername={user?.username ?? ''}
+                  accepting={accepting === quest.id}
+                  completing={completing === quest.id}
                   onClick={() => setSelectedQuest(quest)}
                   onDelete={() => handleDeleteQuest(quest.id)}
+                  onAccept={() => handleAcceptQuest(quest.id)}
+                  onComplete={() => handleCompleteQuest(quest.id)}
                   onImageClick={(src, alt) => { setLightboxSrc(src); setLightboxAlt(alt); }}
                 />
               ))}
@@ -500,7 +551,7 @@ export default function GuildDashboard() {
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
             </svg>
-            {quests.length} active quests
+            {quests.filter(q => q.status === 'OPEN').length} open quests
           </span>
           {guild.description && <span style={s.footerDesc}>{guild.description}</span>}
         </div>
@@ -602,8 +653,13 @@ export default function GuildDashboard() {
         <QuestDetailModal
           quest={selectedQuest}
           onClose={() => setSelectedQuest(null)}
-          currentUser={user?.username ?? ''}
+          currentUserId={user?.id ?? 0}
+          currentUsername={user?.username ?? ''}
           onDelete={() => handleDeleteQuest(selectedQuest.id)}
+          onAccept={() => handleAcceptQuest(selectedQuest.id)}
+          onComplete={() => handleCompleteQuest(selectedQuest.id)}
+          accepting={accepting === selectedQuest.id}
+          completing={completing === selectedQuest.id}
           onImageClick={(src, alt) => { setLightboxSrc(src); setLightboxAlt(alt); }}
         />
       )}
@@ -613,64 +669,62 @@ export default function GuildDashboard() {
 
 // ── Quest Card ────────────────────────────────────────────────────────────────
 
-function QuestCard({ quest, currentUser, onClick, onDelete, onImageClick }: {
-  quest: Quest; currentUser: string; onClick: () => void; onDelete: () => void;
+function QuestCard({ quest, currentUserId, currentUsername, onClick, onDelete, onAccept, onComplete, accepting, completing, onImageClick }: {
+  quest: Quest; currentUserId: number; currentUsername: string;
+  onClick: () => void; onDelete: () => void; onAccept: () => void; onComplete: () => void;
+  accepting: boolean; completing: boolean;
   onImageClick: (src: string, alt: string) => void;
 }) {
   const isPaid = quest.questType === 'PAID';
-  const isOwn = quest.postedBy === currentUser;
+  const isOwn = quest.posterId === currentUserId;
+  const isTaken = quest.status === 'PENDING' || quest.status === 'COMPLETED';
+  const isCompleted = quest.status === 'COMPLETED';
   const hasImage = isImage(quest.attachmentName) && !!quest.attachmentData;
   const hasPdf = isPdf(quest.attachmentName) && !!quest.attachmentData;
 
   return (
-    <div style={cs.card}>
+    <div style={{
+      ...cs.card,
+      opacity: (isTaken && !quest.acceptedByMe && !isOwn) ? 0.55 : 1,
+      filter: (isTaken && !quest.acceptedByMe && !isOwn) ? 'grayscale(0.3)' : 'none',
+    }}>
       <div style={cs.cardClickArea} onClick={onClick}>
         <div style={cs.cardHeader}>
           <QuestIcon size={38} />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={cs.cardTitle}>{quest.title}</div>
-            <div style={cs.cardCategory}>{quest.category}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '3px' }}>
+              <div style={cs.cardCategory}>{quest.category}</div>
+              <StatusBadge status={quest.status} />
+            </div>
           </div>
         </div>
         <div style={cs.divider} />
-        <div style={cs.postedBy}>posted by: {quest.postedBy}</div>
+        <div style={cs.postedBy}>
+          posted by: {quest.postedBy}
+          {isTaken && quest.helperUsername && (
+            <span style={cs.takenBy}> · taken by {quest.helperUsername}</span>
+          )}
+        </div>
         <div>
           <div style={cs.descLabel}>Description:</div>
           <div style={cs.descText}>{quest.description}</div>
         </div>
 
-        {/* Image thumbnail — clickable to lightbox */}
         {hasImage && (
-          <div
-            style={cs.imageThumbnailWrap}
-            onClick={e => { e.stopPropagation(); onImageClick(quest.attachmentData!, quest.attachmentName!); }}
-            title="Click to expand image"
-          >
-            <img
-              src={quest.attachmentData!}
-              alt={quest.attachmentName!}
-              style={cs.imageThumbnail}
-            />
-            <div style={cs.imageOverlay}>
-              <span style={cs.expandIcon}>🔍</span>
-            </div>
+          <div style={cs.imageThumbnailWrap}
+            onClick={e => { e.stopPropagation(); onImageClick(quest.attachmentData!, quest.attachmentName!); }}>
+            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={cs.imageThumbnail} />
           </div>
         )}
-
-        {/* PDF badge */}
         {hasPdf && (
-          <div
-            style={cs.pdfBadge}
-            onClick={e => { e.stopPropagation(); downloadPdf(quest.attachmentData!, quest.attachmentName!); }}
-            title="Click to download PDF"
-          >
+          <div style={cs.pdfBadge}
+            onClick={e => { e.stopPropagation(); downloadPdf(quest.attachmentData!, quest.attachmentName!); }}>
             <span style={{ fontSize: '16px' }}>📄</span>
             <span style={cs.pdfName}>{quest.attachmentName}</span>
             <span style={cs.downloadIcon}>↓</span>
           </div>
         )}
-
-        {/* Other attachment types */}
         {quest.attachmentName && !hasImage && !hasPdf && (
           <div style={cs.attachRow}>
             <span style={{ fontSize: '15px' }}>📎</span>
@@ -678,14 +732,46 @@ function QuestCard({ quest, currentUser, onClick, onDelete, onImageClick }: {
           </div>
         )}
       </div>
+
       <div style={cs.footer}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
           <span style={cs.rewardLabel}>Reward:</span>
           {isPaid ? <span style={cs.paidText}>₱ {Number(quest.reward).toLocaleString()}</span>
                   : <span style={cs.volBadge}>Volunteer</span>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={cs.xpText}>+{quest.xpReward} XP</span>
+
+          {/* Commissioner: mark complete on PENDING */}
+          {isOwn && quest.status === 'PENDING' && (
+            <button style={cs.completeCardBtn}
+              onClick={e => { e.stopPropagation(); onComplete(); }}
+              disabled={completing}
+              title="Mark as completed">
+              {completing ? '...' : '✓ Done'}
+            </button>
+          )}
+
+          {/* Non-owner: accept if OPEN */}
+          {!isOwn && quest.status === 'OPEN' && (
+            <button style={{ ...cs.acceptCardBtn, opacity: accepting ? 0.7 : 1 }}
+              onClick={e => { e.stopPropagation(); onAccept(); }}
+              disabled={accepting}
+              title="Accept quest">
+              {accepting ? '...' : 'Accept'}
+            </button>
+          )}
+
+          {/* Taken indicator */}
+          {!isOwn && isTaken && !quest.acceptedByMe && (
+            <span style={cs.takenBadge}>Taken</span>
+          )}
+
+          {/* Accepted by me */}
+          {quest.acceptedByMe && !isCompleted && (
+            <span style={cs.myQuestBadge}>My Quest</span>
+          )}
+
           {isOwn && (
             <button style={cs.deleteCardBtn}
               onClick={e => { e.stopPropagation(); if (window.confirm('Delete this quest?')) onDelete(); }}
@@ -699,14 +785,19 @@ function QuestCard({ quest, currentUser, onClick, onDelete, onImageClick }: {
 
 // ── Quest Detail Modal ────────────────────────────────────────────────────────
 
-function QuestDetailModal({ quest, onClose, currentUser, onDelete, onImageClick }: {
-  quest: Quest; onClose: () => void; currentUser: string; onDelete: () => void;
+function QuestDetailModal({ quest, onClose, currentUserId, currentUsername, onDelete, onAccept, onComplete, accepting, completing, onImageClick }: {
+  quest: Quest; onClose: () => void; currentUserId: number; currentUsername: string;
+  onDelete: () => void; onAccept: () => void; onComplete: () => void;
+  accepting: boolean; completing: boolean;
   onImageClick: (src: string, alt: string) => void;
 }) {
   const isPaid = quest.questType === 'PAID';
-  const isOwn = quest.postedBy === currentUser;
+  const isOwn = quest.posterId === currentUserId;
   const hasImage = isImage(quest.attachmentName) && !!quest.attachmentData;
   const hasPdf = isPdf(quest.attachmentName) && !!quest.attachmentData;
+  const canAccept = !isOwn && quest.status === 'OPEN';
+  const canComplete = isOwn && quest.status === 'PENDING';
+  const isCompleted = quest.status === 'COMPLETED';
 
   return (
     <div style={dm.overlay} onClick={onClose}>
@@ -717,33 +808,33 @@ function QuestDetailModal({ quest, onClose, currentUser, onDelete, onImageClick 
           <QuestIcon size={52} />
           <div style={{ flex: 1 }}>
             <div style={dm.title}>{quest.title}</div>
-            <div style={dm.categoryChip}>{quest.category}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+              <div style={dm.categoryChip}>{quest.category}</div>
+              <StatusBadge status={quest.status} />
+            </div>
           </div>
         </div>
 
-        <div style={dm.postedBy}>posted by: {quest.postedBy}</div>
+        <div style={dm.postedBy}>
+          posted by: {quest.postedBy}
+          {quest.helperUsername && (
+            <span style={{ color: '#92400e', fontWeight: 600 }}> · accepted by {quest.helperUsername}</span>
+          )}
+        </div>
         <div style={dm.divider} />
         <div style={dm.descLabel}>Description:</div>
         <div style={dm.descText}>{quest.description}</div>
 
-        {/* Image attachment — full-width preview + click to expand */}
         {hasImage && (
           <div style={dm.imageWrap}>
             <div style={dm.imageLabelRow}>
               <span style={dm.attachLabel}>📷 {quest.attachmentName}</span>
-              <span style={dm.expandHint}>Click image to expand & zoom</span>
+              <span style={dm.expandHint}>Click to expand & zoom</span>
             </div>
-            <img
-              src={quest.attachmentData!}
-              alt={quest.attachmentName!}
-              style={dm.imagePreview}
-              onClick={() => onImageClick(quest.attachmentData!, quest.attachmentName!)}
-              title="Click to expand"
-            />
+            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={dm.imagePreview}
+              onClick={() => onImageClick(quest.attachmentData!, quest.attachmentName!)} />
           </div>
         )}
-
-        {/* PDF attachment — prominent download button */}
         {hasPdf && (
           <div style={dm.pdfWrap}>
             <div style={dm.pdfIcon}>📄</div>
@@ -751,32 +842,53 @@ function QuestDetailModal({ quest, onClose, currentUser, onDelete, onImageClick 
               <div style={dm.pdfFilename}>{quest.attachmentName}</div>
               <div style={dm.pdfSubtext}>PDF Document</div>
             </div>
-            <button
-              style={dm.pdfDownloadBtn}
-              onClick={() => downloadPdf(quest.attachmentData!, quest.attachmentName!)}
-            >
+            <button style={dm.pdfDownloadBtn} onClick={() => downloadPdf(quest.attachmentData!, quest.attachmentName!)}>
               ↓ Download
             </button>
           </div>
         )}
-
-        {/* Other attachment */}
         {quest.attachmentName && !hasImage && !hasPdf && (
           <div style={dm.attachBox}>
             <span style={{ fontSize: '22px' }}>📎</span>
-            <div style={{ flex: 1 }}>
-              <div style={dm.attachName}>{quest.attachmentName}</div>
-            </div>
+            <div style={{ flex: 1 }}><div style={dm.attachName}>{quest.attachmentName}</div></div>
+          </div>
+        )}
+
+        {isCompleted && (
+          <div style={dm.completedBanner}>
+            ✓ This quest has been completed!
           </div>
         )}
 
         <div style={dm.footer}>
-          {!isOwn && <button style={dm.acceptBtn} title="Quest acceptance — coming soon">Accept Quest</button>}
-          {isOwn && (
-            <button style={dm.deleteBtn} onClick={() => { if (window.confirm('Delete this quest? This cannot be undone.')) onDelete(); }}>
+          {/* Commissioner actions */}
+          {isOwn && canComplete && (
+            <button style={{ ...dm.completeBtn, opacity: completing ? 0.7 : 1 }}
+              onClick={onComplete} disabled={completing}>
+              {completing ? 'Marking...' : '✓ Mark as Completed'}
+            </button>
+          )}
+          {isOwn && !canComplete && !isCompleted && (
+            <button style={dm.deleteBtn}
+              onClick={() => { if (window.confirm('Delete this quest?')) onDelete(); }}>
               🗑 Delete Quest
             </button>
           )}
+
+          {/* Non-owner actions */}
+          {canAccept && (
+            <button style={{ ...dm.acceptBtn, opacity: accepting ? 0.7 : 1 }}
+              onClick={onAccept} disabled={accepting}>
+              {accepting ? 'Accepting...' : '⚔️ Accept Quest'}
+            </button>
+          )}
+          {!isOwn && quest.acceptedByMe && !isCompleted && (
+            <span style={dm.myQuestInfo}>✓ You accepted this quest</span>
+          )}
+          {!isOwn && quest.status === 'PENDING' && !quest.acceptedByMe && (
+            <span style={dm.takenInfo}>This quest has been taken by someone else.</span>
+          )}
+
           <div style={dm.rewardGroup}>
             <span style={dm.rewardLabel}>Reward:</span>
             {isPaid ? <span style={dm.paidText}>₱ {Number(quest.reward).toLocaleString()}</span>
@@ -806,9 +918,13 @@ const s: Record<string, React.CSSProperties> = {
   panelTitleRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' },
   panelTitle: { color: '#34C759', fontWeight: 700, fontSize: '20px', margin: 0 },
   commissionBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '20px', padding: '7px 18px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '13px', cursor: 'pointer', flexShrink: 0 },
-  searchWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
+  filterRow: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
+  searchWrap: { position: 'relative', display: 'flex', alignItems: 'center', flex: 1, minWidth: '200px' },
   searchIcon: { position: 'absolute', left: '11px', pointerEvents: 'none' },
-  searchInput: { width: '100%', minWidth: '260px', padding: '8px 12px 8px 32px', border: '1.5px solid #e8e8e8', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '13px', outline: 'none', backgroundColor: '#fafafa', boxSizing: 'border-box' },
+  searchInput: { width: '100%', padding: '8px 12px 8px 32px', border: '1.5px solid #e8e8e8', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '13px', outline: 'none', backgroundColor: '#fafafa', boxSizing: 'border-box' },
+  statusFilters: { display: 'flex', gap: '6px', flexShrink: 0 },
+  filterChip: { background: '#f5f5f5', border: '1.5px solid #e8e8e8', borderRadius: '20px', padding: '5px 12px', fontFamily: "'Prompt', sans-serif", fontSize: '12px', fontWeight: 600, color: '#666', cursor: 'pointer' },
+  filterChipActive: { backgroundColor: '#52734D', borderColor: '#52734D', color: '#fff' },
   questGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', padding: '16px 20px 20px' },
   emptyState: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '56px 24px', gap: '8px' },
   emptyTitle: { fontWeight: 700, fontSize: '17px', color: '#666' },
@@ -842,51 +958,33 @@ const s: Record<string, React.CSSProperties> = {
 };
 
 const cs: Record<string, React.CSSProperties> = {
-  card: { backgroundColor: '#DDFFBC', borderRadius: '14px', border: '1.5px solid rgba(82,115,77,0.2)', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  card: { backgroundColor: '#DDFFBC', borderRadius: '14px', border: '1.5px solid rgba(82,115,77,0.2)', display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'opacity 0.2s, filter 0.2s' },
   cardClickArea: { padding: '16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 },
   cardHeader: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
-  cardTitle: { fontWeight: 700, fontSize: '15px', color: '#1a1a1a', lineHeight: '1.3', marginBottom: '3px' },
+  cardTitle: { fontWeight: 700, fontSize: '15px', color: '#1a1a1a', lineHeight: '1.3', marginBottom: '2px' },
   cardCategory: { fontSize: '11px', fontWeight: 600, color: '#52734D', textTransform: 'uppercase', letterSpacing: '0.5px' },
   divider: { height: '1px', backgroundColor: 'rgba(82,115,77,0.2)' },
   postedBy: { fontSize: '12px', color: '#666' },
+  takenBy: { color: '#92400e', fontWeight: 600 },
   descLabel: { fontWeight: 700, fontSize: '13px', color: '#333', marginBottom: '3px' },
   descText: { fontSize: '13px', color: '#555', lineHeight: '1.5', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
-
-  // Image thumbnail on card
-  imageThumbnailWrap: {
-    position: 'relative', borderRadius: '8px', overflow: 'hidden', cursor: 'zoom-in',
-    border: '1.5px solid rgba(82,115,77,0.25)', lineHeight: 0,
-  },
+  imageThumbnailWrap: { position: 'relative', borderRadius: '8px', overflow: 'hidden', cursor: 'zoom-in', border: '1.5px solid rgba(82,115,77,0.25)', lineHeight: 0 },
   imageThumbnail: { width: '100%', maxHeight: '140px', objectFit: 'cover', display: 'block' },
-  imageOverlay: {
-    position: 'absolute', inset: 0,
-    backgroundColor: 'rgba(0,0,0,0)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    transition: 'background-color 0.2s',
-    // Hover handled via CSS in the style tag since inline styles can't do :hover
-  },
-  expandIcon: { fontSize: '24px', opacity: 0, transition: 'opacity 0.2s' },
-
-  // PDF badge on card
-  pdfBadge: {
-    display: 'flex', alignItems: 'center', gap: '8px',
-    padding: '8px 12px',
-    backgroundColor: '#fff', borderRadius: '8px',
-    border: '1.5px solid rgba(82,115,77,0.2)',
-    cursor: 'pointer', transition: 'background 0.15s',
-  },
+  pdfBadge: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#fff', borderRadius: '8px', border: '1.5px solid rgba(82,115,77,0.2)', cursor: 'pointer' },
   pdfName: { flex: 1, fontSize: '12px', color: '#444', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   downloadIcon: { fontSize: '14px', fontWeight: 700, color: '#52734D', flexShrink: 0 },
-
   attachRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid rgba(82,115,77,0.2)' },
   attachText: { fontSize: '12px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
-
-  footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid rgba(82,115,77,0.15)', backgroundColor: 'rgba(255,255,255,0.3)' },
-  deleteCardBtn: { background: 'none', border: '1.5px solid #c73434', borderRadius: '6px', color: '#c73434', fontSize: '13px', padding: '3px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
+  footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid rgba(82,115,77,0.15)', backgroundColor: 'rgba(255,255,255,0.3)', gap: '8px' },
   rewardLabel: { fontWeight: 700, fontSize: '13px', color: '#333' },
   volBadge: { backgroundColor: '#34C759', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
   paidText: { fontWeight: 700, fontSize: '14px', color: '#34C759' },
   xpText: { fontWeight: 700, fontSize: '13px', color: '#52734D' },
+  deleteCardBtn: { background: 'none', border: '1.5px solid #c73434', borderRadius: '6px', color: '#c73434', fontSize: '13px', padding: '3px 8px', cursor: 'pointer' },
+  acceptCardBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 12px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
+  completeCardBtn: { backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
+  takenBadge: { backgroundColor: '#6b7280', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
+  myQuestBadge: { backgroundColor: '#1e3a5f', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
 };
 
 const dm: Record<string, React.CSSProperties> = {
@@ -894,51 +992,32 @@ const dm: Record<string, React.CSSProperties> = {
   modal: { backgroundColor: '#DDFFBC', borderRadius: '20px', width: '100%', maxWidth: '560px', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.25)', padding: '28px', position: 'relative' },
   closeBtn: { position: 'absolute', top: '16px', right: '16px', background: '#c73434', border: 'none', borderRadius: '8px', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: '14px' },
   headerRow: { display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '14px' },
-  title: { fontWeight: 700, fontSize: '20px', color: '#1a1a1a', lineHeight: '1.3', marginBottom: '6px' },
+  title: { fontWeight: 700, fontSize: '20px', color: '#1a1a1a', lineHeight: '1.3', marginBottom: '4px' },
   categoryChip: { fontSize: '11px', fontWeight: 600, color: '#52734D', textTransform: 'uppercase', letterSpacing: '0.8px', backgroundColor: 'rgba(82,115,77,0.15)', padding: '3px 10px', borderRadius: '20px', display: 'inline-block' },
   postedBy: { fontSize: '13px', color: '#666', marginBottom: '12px' },
   divider: { height: '1.5px', backgroundColor: 'rgba(82,115,77,0.25)', marginBottom: '14px' },
   descLabel: { fontWeight: 700, fontSize: '14px', color: '#333', marginBottom: '6px' },
   descText: { fontSize: '14px', color: '#444', lineHeight: '1.65', marginBottom: '16px' },
-
-  // Image in detail modal
   imageWrap: { marginBottom: '16px' },
   imageLabelRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' },
   attachLabel: { fontSize: '13px', fontWeight: 600, color: '#52734D' },
   expandHint: { fontSize: '11px', color: '#888', fontStyle: 'italic' },
-  imagePreview: {
-    width: '100%', maxHeight: '300px', objectFit: 'contain',
-    borderRadius: '10px', cursor: 'zoom-in',
-    border: '1.5px solid rgba(82,115,77,0.2)',
-    backgroundColor: '#fff',
-    display: 'block',
-    transition: 'box-shadow 0.2s',
-  },
-
-  // PDF in detail modal
-  pdfWrap: {
-    display: 'flex', alignItems: 'center', gap: '14px',
-    padding: '14px 16px', marginBottom: '16px',
-    backgroundColor: '#fff', borderRadius: '12px',
-    border: '1.5px solid rgba(82,115,77,0.2)',
-  },
+  imagePreview: { width: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '10px', cursor: 'zoom-in', border: '1.5px solid rgba(82,115,77,0.2)', backgroundColor: '#fff', display: 'block' },
+  pdfWrap: { display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', marginBottom: '16px', backgroundColor: '#fff', borderRadius: '12px', border: '1.5px solid rgba(82,115,77,0.2)' },
   pdfIcon: { fontSize: '32px', flexShrink: 0 },
   pdfInfo: { flex: 1, minWidth: 0 },
   pdfFilename: { fontWeight: 600, fontSize: '14px', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   pdfSubtext: { fontSize: '12px', color: '#888', marginTop: '2px' },
-  pdfDownloadBtn: {
-    backgroundColor: '#52734D', color: '#fff', border: 'none',
-    borderRadius: '10px', padding: '8px 16px',
-    fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '13px',
-    cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
-    transition: 'filter 0.15s',
-  },
-
-  attachBox: { display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', backgroundColor: '#fff', borderRadius: '10px', border: '1px solid rgba(82,115,77,0.2)', marginBottom: '20px' },
+  pdfDownloadBtn: { backgroundColor: '#52734D', color: '#fff', border: 'none', borderRadius: '10px', padding: '8px 16px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '13px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' },
+  attachBox: { display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', backgroundColor: '#fff', borderRadius: '10px', border: '1px solid rgba(82,115,77,0.2)', marginBottom: '16px' },
   attachName: { fontWeight: 600, fontSize: '13px', color: '#333' },
+  completedBanner: { backgroundColor: '#dbeafe', border: '1px solid #93c5fd', borderRadius: '10px', padding: '10px 14px', fontSize: '14px', fontWeight: 600, color: '#1e3a5f', marginBottom: '16px', textAlign: 'center' },
   footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', paddingTop: '8px' },
   acceptBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '15px', cursor: 'pointer' },
+  completeBtn: { backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px 20px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
   deleteBtn: { backgroundColor: 'transparent', color: '#c73434', border: '1.5px solid #c73434', borderRadius: '10px', padding: '10px 20px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
+  myQuestInfo: { fontSize: '13px', fontWeight: 600, color: '#1e3a5f' },
+  takenInfo: { fontSize: '13px', color: '#92400e', fontWeight: 500 },
   rewardGroup: { display: 'flex', alignItems: 'center', gap: '10px', marginLeft: 'auto' },
   rewardLabel: { fontWeight: 700, fontSize: '14px', color: '#333' },
   volBadge: { backgroundColor: '#34C759', color: '#fff', fontSize: '12px', fontWeight: 700, padding: '4px 12px', borderRadius: '20px' },
