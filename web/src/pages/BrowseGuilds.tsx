@@ -1,6 +1,5 @@
 // src/pages/BrowseGuilds.tsx
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import api from '../api/authApi';
 
@@ -14,7 +13,6 @@ interface Guild {
 }
 
 export default function BrowseGuilds() {
-  const navigate = useNavigate();
   const [guilds, setGuilds] = useState<Guild[]>([]);
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);

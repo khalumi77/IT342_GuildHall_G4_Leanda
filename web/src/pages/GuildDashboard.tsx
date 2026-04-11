@@ -1,10 +1,11 @@
 // src/pages/GuildDashboard.tsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import api from '../api/authApi';
 import { supabase } from '../api/supabaseClient';
+import QuestDetailModal, { type QuestDetail, StatusBadge } from '../components/QuestDetailModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,52 +18,9 @@ interface GuildInfo {
   isMember: boolean;
 }
 
-interface Quest {
-  id: number;
-  title: string;
-  category: string;
-  description: string;
-  questType: 'VOLUNTEER' | 'PAID';
-  reward: number | null;
-  xpReward: number;
-  status: 'OPEN' | 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'PENDING_PAYMENT';
-  postedBy: string;
-  posterId: number;
-  createdAt: string | null;
-  attachmentName: string | null;
-  attachmentData: string | null;
-  helperUsername: string | null;
-  helperId: number | null;
-  acceptedByMe: boolean;
-}
+type Quest = QuestDetail;
 
 const CATEGORIES = ['Design', 'Academic', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
-
-// ── Status config ─────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  OPEN:      { label: 'Open',      color: '#166534', bg: '#dcfce7' },
-  PENDING:   { label: 'Pending',   color: '#92400e', bg: '#fef3c7' },
-  COMPLETED: { label: 'Completed', color: '#1e3a5f', bg: '#dbeafe' },
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CONFIG[status] ?? { label: status, color: '#555', bg: '#eee' };
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: '4px',
-      backgroundColor: cfg.bg, color: cfg.color,
-      fontSize: '11px', fontWeight: 700,
-      padding: '2px 9px', borderRadius: '20px',
-      letterSpacing: '0.4px', textTransform: 'uppercase',
-    }}>
-      {status === 'OPEN' && '●  '}
-      {status === 'PENDING' && '◐  '}
-      {status === 'COMPLETED' && '✓  '}
-      {cfg.label}
-    </span>
-  );
-}
 
 // ── Daily quote helpers ───────────────────────────────────────────────────────
 
@@ -88,68 +46,8 @@ function setCachedQuote(q: DailyQuote) {
   try { sessionStorage.setItem(QUOTE_CACHE_KEY, JSON.stringify(q)); } catch { /**/ }
 }
 
-// ── Image Lightbox ────────────────────────────────────────────────────────────
-
-function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
-  const [scale, setScale] = useState(1);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [posStart, setPosStart] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', handler); document.body.style.overflow = ''; };
-  }, [onClose]);
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    setScale(s => Math.min(8, Math.max(0.5, s - e.deltaY * 0.001)));
-  }, []);
-
-  return (
-    <div style={lb.overlay} onClick={onClose}>
-      <div style={lb.controls} onClick={e => e.stopPropagation()}>
-        <button style={lb.ctrlBtn} onClick={() => setScale(s => Math.max(0.5, s - 0.4))}>−</button>
-        <span style={lb.zoomLabel}>{Math.round(scale * 100)}%</span>
-        <button style={lb.ctrlBtn} onClick={() => setScale(s => Math.min(8, s + 0.4))}>+</button>
-        <button style={lb.ctrlBtn} onClick={() => { setScale(1); setPos({ x: 0, y: 0 }); }}>↺</button>
-        <button style={{ ...lb.ctrlBtn, marginLeft: '8px' }} onClick={onClose}>✕</button>
-      </div>
-      <div style={{ ...lb.canvas, cursor: dragging ? 'grabbing' : 'grab' }}
-        onClick={e => e.stopPropagation()}
-        onWheel={handleWheel}
-        onMouseDown={e => { setDragging(true); setDragStart({ x: e.clientX, y: e.clientY }); setPosStart({ ...pos }); }}
-        onMouseMove={e => { if (!dragging) return; setPos({ x: posStart.x + (e.clientX - dragStart.x), y: posStart.y + (e.clientY - dragStart.y) }); }}
-        onMouseUp={() => setDragging(false)}
-        onMouseLeave={() => setDragging(false)}>
-        <img src={src} alt={alt} draggable={false} style={{
-          transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
-          transition: dragging ? 'none' : 'transform 0.15s ease',
-          maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain',
-          borderRadius: '6px', userSelect: 'none', pointerEvents: 'none',
-        }} />
-      </div>
-      <div style={lb.hint}>Scroll to zoom · Drag to pan · Esc to close</div>
-    </div>
-  );
-}
-
-const lb: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, zIndex: 1000, backgroundColor: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
-  controls: { position: 'fixed', top: '16px', right: '16px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)', borderRadius: '12px', padding: '8px 12px', zIndex: 1001 },
-  ctrlBtn: { background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '8px', color: '#fff', width: '34px', height: '34px', fontSize: '16px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' },
-  zoomLabel: { color: '#fff', fontSize: '13px', fontWeight: 600, minWidth: '44px', textAlign: 'center', fontFamily: "'Prompt', sans-serif" },
-  canvas: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', overflow: 'hidden' },
-  hint: { position: 'fixed', bottom: '16px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontFamily: "'Prompt', sans-serif", pointerEvents: 'none' },
-};
-
 // ── Attachment helpers ────────────────────────────────────────────────────────
 
-function isImage(name: string | null) { return !!name?.match(/\.(jpg|jpeg|png|gif|webp)$/i); }
-function isPdf(name: string | null) { return !!name?.match(/\.pdf$/i); }
 function downloadPdf(url: string, filename: string) {
   const a = document.createElement('a'); a.href = url; a.download = filename;
   a.target = '_blank'; a.rel = 'noopener noreferrer';
@@ -173,7 +71,7 @@ function QuestIcon({ size = 40 }: { size?: number }) {
   );
 }
 
-// ── Accept Confirmation Popup ─────────────────────────────────────────────────
+// ── Accept Celebration Popup ──────────────────────────────────────────────────
 
 function AcceptedPopup({ quest, onOpenChat, onClose }: {
   quest: Quest; onOpenChat: () => void; onClose: () => void;
@@ -233,7 +131,7 @@ export default function GuildDashboard() {
   const [quote, setQuote] = useState<{ text: string; author: string } | null>(getCachedQuote);
   const [quoteLoading, setQuoteLoading] = useState(quote === null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'PENDING' | 'COMPLETED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'PENDING'>('ALL');
 
   // Commission form
   const [showCommissionForm, setShowCommissionForm] = useState(false);
@@ -250,14 +148,10 @@ export default function GuildDashboard() {
 
   // Accept flow
   const [accepting, setAccepting] = useState<number | null>(null);
-  const [acceptedQuest, setAcceptedQuest] = useState<Quest | null>(null); // triggers popup
+  const [acceptedQuest, setAcceptedQuest] = useState<Quest | null>(null);
 
   // Complete flow
   const [completing, setCompleting] = useState<number | null>(null);
-
-  // Lightbox
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [lightboxAlt, setLightboxAlt] = useState('');
 
   useEffect(() => {
     if (!guildId) { setNotFound(true); setIsLoading(false); return; }
@@ -296,7 +190,6 @@ export default function GuildDashboard() {
       const updated: Quest = res.data?.data ?? res.data;
       setQuests(prev => prev.map(q => q.id === questId ? { ...q, ...updated } : q));
       setSelectedQuest(null);
-      // Show celebration popup
       setAcceptedQuest(updated);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
@@ -306,7 +199,7 @@ export default function GuildDashboard() {
     }
   };
 
-  // ── Complete quest (commissioner) ─────────────────────────────────────────
+  // ── Complete quest ────────────────────────────────────────────────────────
 
   const handleCompleteQuest = async (questId: number) => {
     if (!window.confirm('Mark this quest as completed? The helper will be credited.')) return;
@@ -314,8 +207,11 @@ export default function GuildDashboard() {
     try {
       const res = await api.post(`/guilds/${guildId}/quests/${questId}/complete`);
       const updated: Quest = res.data?.data ?? res.data;
-      setQuests(prev => prev.map(q => q.id === questId ? { ...q, ...updated } : q));
-      setSelectedQuest(prev => prev?.id === questId ? { ...prev, ...updated } : prev);
+      // Remove from board — completed quests are hidden from guild dashboard
+      setQuests(prev => prev.filter(q => q.id !== questId));
+      setSelectedQuest(null);
+      // Show a brief success toast via alert for now
+      alert(`✓ Quest marked as completed! ${updated.helperUsername ?? 'The helper'} has been credited.`);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       alert(e?.response?.data?.error?.message || 'Failed to mark quest complete.');
@@ -327,6 +223,7 @@ export default function GuildDashboard() {
   // ── Delete quest ──────────────────────────────────────────────────────────
 
   const handleDeleteQuest = async (questId: number) => {
+    if (!window.confirm('Delete this quest? This cannot be undone.')) return;
     try {
       await api.delete(`/guilds/${guildId}/quests/${questId}`);
       setQuests(prev => prev.filter(q => q.id !== questId));
@@ -429,9 +326,11 @@ export default function GuildDashboard() {
     } finally { setSubmitting(false); }
   };
 
-  // ── Filter quests ─────────────────────────────────────────────────────────
+  // ── Filter — COMPLETED quests are hidden from board ───────────────────────
 
-  const filtered = quests.filter(q => {
+  const visibleQuests = quests.filter(q => q.status !== 'COMPLETED' && q.status !== 'CANCELLED');
+
+  const filtered = visibleQuests.filter(q => {
     const matchSearch = q.title.toLowerCase().includes(search.toLowerCase()) ||
       q.category.toLowerCase().includes(search.toLowerCase()) ||
       q.description.toLowerCase().includes(search.toLowerCase());
@@ -454,17 +353,39 @@ export default function GuildDashboard() {
       <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
       <Navbar />
 
-      {lightboxSrc && <ImageLightbox src={lightboxSrc} alt={lightboxAlt} onClose={() => setLightboxSrc(null)} />}
-
       {/* Accept celebration popup */}
       {acceptedQuest && (
         <AcceptedPopup
           quest={acceptedQuest}
-          onOpenChat={() => {
-            setAcceptedQuest(null);
-            alert('Chat feature coming soon!');
-          }}
+          onOpenChat={() => { setAcceptedQuest(null); alert('Chat feature coming soon!'); }}
           onClose={() => setAcceptedQuest(null)}
+        />
+      )}
+
+      {/* Quest detail modal — shared component, no showGuildLink since we're already here */}
+      {selectedQuest && (
+        <QuestDetailModal
+          quest={selectedQuest}
+          onClose={() => setSelectedQuest(null)}
+          currentUserId={user?.id ?? 0}
+          onAccept={
+            selectedQuest.posterId !== (user?.id ?? 0) && selectedQuest.status === 'OPEN'
+              ? () => handleAcceptQuest(selectedQuest.id)
+              : undefined
+          }
+          onComplete={
+            selectedQuest.posterId === (user?.id ?? 0) && selectedQuest.status === 'PENDING'
+              ? () => handleCompleteQuest(selectedQuest.id)
+              : undefined
+          }
+          onDelete={
+            selectedQuest.posterId === (user?.id ?? 0)
+              ? () => handleDeleteQuest(selectedQuest.id)
+              : undefined
+          }
+          accepting={accepting === selectedQuest.id}
+          completing={completing === selectedQuest.id}
+          showGuildLink={false}
         />
       )}
 
@@ -491,7 +412,6 @@ export default function GuildDashboard() {
               </button>
             </div>
 
-            {/* Search + status filter row */}
             <div style={s.filterRow}>
               <div style={s.searchWrap}>
                 <svg style={s.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -500,10 +420,10 @@ export default function GuildDashboard() {
                 <input style={s.searchInput} placeholder="Search quests" value={search} onChange={e => setSearch(e.target.value)} />
               </div>
               <div style={s.statusFilters}>
-                {(['ALL', 'OPEN', 'PENDING', 'COMPLETED'] as const).map(f => (
+                {(['ALL', 'OPEN', 'PENDING'] as const).map(f => (
                   <button key={f} style={{ ...s.filterChip, ...(statusFilter === f ? s.filterChipActive : {}) }}
                     onClick={() => setStatusFilter(f)}>
-                    {f === 'ALL' ? 'All' : STATUS_CONFIG[f]?.label ?? f}
+                    {f === 'ALL' ? 'All' : f === 'OPEN' ? 'Open' : 'Pending'}
                   </button>
                 ))}
               </div>
@@ -513,8 +433,10 @@ export default function GuildDashboard() {
           {filtered.length === 0 ? (
             <div style={s.emptyState}>
               <div style={{ fontSize: '44px', opacity: 0.3, marginBottom: '6px' }}>⚔️</div>
-              <div style={s.emptyTitle}>No quests yet</div>
-              <div style={s.emptySubtitle}>{search ? 'No quests match your search.' : 'Be the first to commission a quest!'}</div>
+              <div style={s.emptyTitle}>No quests here</div>
+              <div style={s.emptySubtitle}>
+                {search ? 'No quests match your search.' : 'Be the first to commission a quest!'}
+              </div>
             </div>
           ) : (
             <div style={s.questGrid}>
@@ -523,14 +445,12 @@ export default function GuildDashboard() {
                   key={quest.id}
                   quest={quest}
                   currentUserId={user?.id ?? 0}
-                  currentUsername={user?.username ?? ''}
-                  accepting={accepting === quest.id}
-                  completing={completing === quest.id}
                   onClick={() => setSelectedQuest(quest)}
                   onDelete={() => handleDeleteQuest(quest.id)}
                   onAccept={() => handleAcceptQuest(quest.id)}
                   onComplete={() => handleCompleteQuest(quest.id)}
-                  onImageClick={(src, alt) => { setLightboxSrc(src); setLightboxAlt(alt); }}
+                  accepting={accepting === quest.id}
+                  completing={completing === quest.id}
                 />
               ))}
             </div>
@@ -551,7 +471,7 @@ export default function GuildDashboard() {
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
             </svg>
-            {quests.filter(q => q.status === 'OPEN').length} open quests
+            {visibleQuests.filter(q => q.status === 'OPEN').length} open quests
           </span>
           {guild.description && <span style={s.footerDesc}>{guild.description}</span>}
         </div>
@@ -647,40 +567,22 @@ export default function GuildDashboard() {
           </div>
         </div>
       )}
-
-      {/* Quest Detail Modal */}
-      {selectedQuest && (
-        <QuestDetailModal
-          quest={selectedQuest}
-          onClose={() => setSelectedQuest(null)}
-          currentUserId={user?.id ?? 0}
-          currentUsername={user?.username ?? ''}
-          onDelete={() => handleDeleteQuest(selectedQuest.id)}
-          onAccept={() => handleAcceptQuest(selectedQuest.id)}
-          onComplete={() => handleCompleteQuest(selectedQuest.id)}
-          accepting={accepting === selectedQuest.id}
-          completing={completing === selectedQuest.id}
-          onImageClick={(src, alt) => { setLightboxSrc(src); setLightboxAlt(alt); }}
-        />
-      )}
     </div>
   );
 }
 
-// ── Quest Card ────────────────────────────────────────────────────────────────
+// ── Quest Card (board card, not the modal) ────────────────────────────────────
 
-function QuestCard({ quest, currentUserId, currentUsername, onClick, onDelete, onAccept, onComplete, accepting, completing, onImageClick }: {
-  quest: Quest; currentUserId: number; currentUsername: string;
+function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComplete, accepting, completing }: {
+  quest: Quest; currentUserId: number;
   onClick: () => void; onDelete: () => void; onAccept: () => void; onComplete: () => void;
   accepting: boolean; completing: boolean;
-  onImageClick: (src: string, alt: string) => void;
 }) {
   const isPaid = quest.questType === 'PAID';
   const isOwn = quest.posterId === currentUserId;
-  const isTaken = quest.status === 'PENDING' || quest.status === 'COMPLETED';
-  const isCompleted = quest.status === 'COMPLETED';
-  const hasImage = isImage(quest.attachmentName) && !!quest.attachmentData;
-  const hasPdf = isPdf(quest.attachmentName) && !!quest.attachmentData;
+  const isTaken = quest.status === 'PENDING';
+  const hasImage = !!(quest.attachmentName?.match(/\.(jpg|jpeg|png|gif|webp)$/i)) && !!quest.attachmentData;
+  const hasPdf = !!(quest.attachmentName?.match(/\.pdf$/i)) && !!quest.attachmentData;
 
   return (
     <div style={{
@@ -706,20 +608,16 @@ function QuestCard({ quest, currentUserId, currentUsername, onClick, onDelete, o
             <span style={cs.takenBy}> · taken by {quest.helperUsername}</span>
           )}
         </div>
-        <div>
-          <div style={cs.descLabel}>Description:</div>
-          <div style={cs.descText}>{quest.description}</div>
-        </div>
+        <div style={cs.descText}>{quest.description}</div>
 
         {hasImage && (
-          <div style={cs.imageThumbnailWrap}
-            onClick={e => { e.stopPropagation(); onImageClick(quest.attachmentData!, quest.attachmentName!); }}>
-            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={cs.imageThumbnail} />
+          <div style={cs.imageThumbnailWrap} onClick={e => e.stopPropagation()}>
+            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={cs.imageThumbnail}
+              onClick={onClick} />
           </div>
         )}
         {hasPdf && (
-          <div style={cs.pdfBadge}
-            onClick={e => { e.stopPropagation(); downloadPdf(quest.attachmentData!, quest.attachmentName!); }}>
+          <div style={cs.pdfBadge} onClick={e => { e.stopPropagation(); downloadPdf(quest.attachmentData!, quest.attachmentName!); }}>
             <span style={{ fontSize: '16px' }}>📄</span>
             <span style={cs.pdfName}>{quest.attachmentName}</span>
             <span style={cs.downloadIcon}>↓</span>
@@ -735,166 +633,33 @@ function QuestCard({ quest, currentUserId, currentUsername, onClick, onDelete, o
 
       <div style={cs.footer}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-          <span style={cs.rewardLabel}>Reward:</span>
           {isPaid ? <span style={cs.paidText}>₱ {Number(quest.reward).toLocaleString()}</span>
                   : <span style={cs.volBadge}>Volunteer</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={cs.xpText}>+{quest.xpReward} XP</span>
 
-          {/* Commissioner: mark complete on PENDING */}
           {isOwn && quest.status === 'PENDING' && (
-            <button style={cs.completeCardBtn}
-              onClick={e => { e.stopPropagation(); onComplete(); }}
-              disabled={completing}
-              title="Mark as completed">
-              {completing ? '...' : '✓ Done'}
+            <button style={cs.completeCardBtn} onClick={e => { e.stopPropagation(); onComplete(); }} disabled={completing}>
+              {completing ? '...' : '✓ Mark as Completed'}
             </button>
           )}
-
-          {/* Non-owner: accept if OPEN */}
           {!isOwn && quest.status === 'OPEN' && (
             <button style={{ ...cs.acceptCardBtn, opacity: accepting ? 0.7 : 1 }}
-              onClick={e => { e.stopPropagation(); onAccept(); }}
-              disabled={accepting}
-              title="Accept quest">
+              onClick={e => { e.stopPropagation(); onAccept(); }} disabled={accepting}>
               {accepting ? '...' : 'Accept'}
             </button>
           )}
-
-          {/* Taken indicator */}
           {!isOwn && isTaken && !quest.acceptedByMe && (
             <span style={cs.takenBadge}>Taken</span>
           )}
-
-          {/* Accepted by me */}
-          {quest.acceptedByMe && !isCompleted && (
+          {quest.acceptedByMe && (
             <span style={cs.myQuestBadge}>My Quest</span>
           )}
-
           {isOwn && (
             <button style={cs.deleteCardBtn}
-              onClick={e => { e.stopPropagation(); if (window.confirm('Delete this quest?')) onDelete(); }}
-              title="Delete quest">🗑</button>
+              onClick={e => { e.stopPropagation(); onDelete(); }} title="Delete quest">🗑</button>
           )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Quest Detail Modal ────────────────────────────────────────────────────────
-
-function QuestDetailModal({ quest, onClose, currentUserId, currentUsername, onDelete, onAccept, onComplete, accepting, completing, onImageClick }: {
-  quest: Quest; onClose: () => void; currentUserId: number; currentUsername: string;
-  onDelete: () => void; onAccept: () => void; onComplete: () => void;
-  accepting: boolean; completing: boolean;
-  onImageClick: (src: string, alt: string) => void;
-}) {
-  const isPaid = quest.questType === 'PAID';
-  const isOwn = quest.posterId === currentUserId;
-  const hasImage = isImage(quest.attachmentName) && !!quest.attachmentData;
-  const hasPdf = isPdf(quest.attachmentName) && !!quest.attachmentData;
-  const canAccept = !isOwn && quest.status === 'OPEN';
-  const canComplete = isOwn && quest.status === 'PENDING';
-  const isCompleted = quest.status === 'COMPLETED';
-
-  return (
-    <div style={dm.overlay} onClick={onClose}>
-      <div style={dm.modal} onClick={e => e.stopPropagation()}>
-        <button style={dm.closeBtn} onClick={onClose}>✕</button>
-
-        <div style={dm.headerRow}>
-          <QuestIcon size={52} />
-          <div style={{ flex: 1 }}>
-            <div style={dm.title}>{quest.title}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-              <div style={dm.categoryChip}>{quest.category}</div>
-              <StatusBadge status={quest.status} />
-            </div>
-          </div>
-        </div>
-
-        <div style={dm.postedBy}>
-          posted by: {quest.postedBy}
-          {quest.helperUsername && (
-            <span style={{ color: '#92400e', fontWeight: 600 }}> · accepted by {quest.helperUsername}</span>
-          )}
-        </div>
-        <div style={dm.divider} />
-        <div style={dm.descLabel}>Description:</div>
-        <div style={dm.descText}>{quest.description}</div>
-
-        {hasImage && (
-          <div style={dm.imageWrap}>
-            <div style={dm.imageLabelRow}>
-              <span style={dm.attachLabel}>📷 {quest.attachmentName}</span>
-              <span style={dm.expandHint}>Click to expand & zoom</span>
-            </div>
-            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={dm.imagePreview}
-              onClick={() => onImageClick(quest.attachmentData!, quest.attachmentName!)} />
-          </div>
-        )}
-        {hasPdf && (
-          <div style={dm.pdfWrap}>
-            <div style={dm.pdfIcon}>📄</div>
-            <div style={dm.pdfInfo}>
-              <div style={dm.pdfFilename}>{quest.attachmentName}</div>
-              <div style={dm.pdfSubtext}>PDF Document</div>
-            </div>
-            <button style={dm.pdfDownloadBtn} onClick={() => downloadPdf(quest.attachmentData!, quest.attachmentName!)}>
-              ↓ Download
-            </button>
-          </div>
-        )}
-        {quest.attachmentName && !hasImage && !hasPdf && (
-          <div style={dm.attachBox}>
-            <span style={{ fontSize: '22px' }}>📎</span>
-            <div style={{ flex: 1 }}><div style={dm.attachName}>{quest.attachmentName}</div></div>
-          </div>
-        )}
-
-        {isCompleted && (
-          <div style={dm.completedBanner}>
-            ✓ This quest has been completed!
-          </div>
-        )}
-
-        <div style={dm.footer}>
-          {/* Commissioner actions */}
-          {isOwn && canComplete && (
-            <button style={{ ...dm.completeBtn, opacity: completing ? 0.7 : 1 }}
-              onClick={onComplete} disabled={completing}>
-              {completing ? 'Marking...' : '✓ Mark as Completed'}
-            </button>
-          )}
-          {isOwn && !canComplete && !isCompleted && (
-            <button style={dm.deleteBtn}
-              onClick={() => { if (window.confirm('Delete this quest?')) onDelete(); }}>
-              🗑 Delete Quest
-            </button>
-          )}
-
-          {/* Non-owner actions */}
-          {canAccept && (
-            <button style={{ ...dm.acceptBtn, opacity: accepting ? 0.7 : 1 }}
-              onClick={onAccept} disabled={accepting}>
-              {accepting ? 'Accepting...' : '⚔️ Accept Quest'}
-            </button>
-          )}
-          {!isOwn && quest.acceptedByMe && !isCompleted && (
-            <span style={dm.myQuestInfo}>✓ You accepted this quest</span>
-          )}
-          {!isOwn && quest.status === 'PENDING' && !quest.acceptedByMe && (
-            <span style={dm.takenInfo}>This quest has been taken by someone else.</span>
-          )}
-
-          <div style={dm.rewardGroup}>
-            <span style={dm.rewardLabel}>Reward:</span>
-            {isPaid ? <span style={dm.paidText}>₱ {Number(quest.reward).toLocaleString()}</span>
-                    : <span style={dm.volBadge}>Volunteer</span>}
-            <span style={dm.xpText}>+{quest.xpReward} XP</span>
-          </div>
         </div>
       </div>
     </div>
@@ -966,17 +731,15 @@ const cs: Record<string, React.CSSProperties> = {
   divider: { height: '1px', backgroundColor: 'rgba(82,115,77,0.2)' },
   postedBy: { fontSize: '12px', color: '#666' },
   takenBy: { color: '#92400e', fontWeight: 600 },
-  descLabel: { fontWeight: 700, fontSize: '13px', color: '#333', marginBottom: '3px' },
   descText: { fontSize: '13px', color: '#555', lineHeight: '1.5', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
-  imageThumbnailWrap: { position: 'relative', borderRadius: '8px', overflow: 'hidden', cursor: 'zoom-in', border: '1.5px solid rgba(82,115,77,0.25)', lineHeight: 0 },
-  imageThumbnail: { width: '100%', maxHeight: '140px', objectFit: 'cover', display: 'block' },
+  imageThumbnailWrap: { borderRadius: '8px', overflow: 'hidden', border: '1.5px solid rgba(82,115,77,0.25)', lineHeight: 0 },
+  imageThumbnail: { width: '100%', maxHeight: '140px', objectFit: 'cover', display: 'block', cursor: 'pointer' },
   pdfBadge: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#fff', borderRadius: '8px', border: '1.5px solid rgba(82,115,77,0.2)', cursor: 'pointer' },
   pdfName: { flex: 1, fontSize: '12px', color: '#444', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   downloadIcon: { fontSize: '14px', fontWeight: 700, color: '#52734D', flexShrink: 0 },
   attachRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid rgba(82,115,77,0.2)' },
   attachText: { fontSize: '12px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
   footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid rgba(82,115,77,0.15)', backgroundColor: 'rgba(255,255,255,0.3)', gap: '8px' },
-  rewardLabel: { fontWeight: 700, fontSize: '13px', color: '#333' },
   volBadge: { backgroundColor: '#34C759', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
   paidText: { fontWeight: 700, fontSize: '14px', color: '#34C759' },
   xpText: { fontWeight: 700, fontSize: '13px', color: '#52734D' },
@@ -985,42 +748,4 @@ const cs: Record<string, React.CSSProperties> = {
   completeCardBtn: { backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
   takenBadge: { backgroundColor: '#6b7280', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
   myQuestBadge: { backgroundColor: '#1e3a5f', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
-};
-
-const dm: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: '20px' },
-  modal: { backgroundColor: '#DDFFBC', borderRadius: '20px', width: '100%', maxWidth: '560px', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.25)', padding: '28px', position: 'relative' },
-  closeBtn: { position: 'absolute', top: '16px', right: '16px', background: '#c73434', border: 'none', borderRadius: '8px', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: '14px' },
-  headerRow: { display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '14px' },
-  title: { fontWeight: 700, fontSize: '20px', color: '#1a1a1a', lineHeight: '1.3', marginBottom: '4px' },
-  categoryChip: { fontSize: '11px', fontWeight: 600, color: '#52734D', textTransform: 'uppercase', letterSpacing: '0.8px', backgroundColor: 'rgba(82,115,77,0.15)', padding: '3px 10px', borderRadius: '20px', display: 'inline-block' },
-  postedBy: { fontSize: '13px', color: '#666', marginBottom: '12px' },
-  divider: { height: '1.5px', backgroundColor: 'rgba(82,115,77,0.25)', marginBottom: '14px' },
-  descLabel: { fontWeight: 700, fontSize: '14px', color: '#333', marginBottom: '6px' },
-  descText: { fontSize: '14px', color: '#444', lineHeight: '1.65', marginBottom: '16px' },
-  imageWrap: { marginBottom: '16px' },
-  imageLabelRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' },
-  attachLabel: { fontSize: '13px', fontWeight: 600, color: '#52734D' },
-  expandHint: { fontSize: '11px', color: '#888', fontStyle: 'italic' },
-  imagePreview: { width: '100%', maxHeight: '300px', objectFit: 'contain', borderRadius: '10px', cursor: 'zoom-in', border: '1.5px solid rgba(82,115,77,0.2)', backgroundColor: '#fff', display: 'block' },
-  pdfWrap: { display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', marginBottom: '16px', backgroundColor: '#fff', borderRadius: '12px', border: '1.5px solid rgba(82,115,77,0.2)' },
-  pdfIcon: { fontSize: '32px', flexShrink: 0 },
-  pdfInfo: { flex: 1, minWidth: 0 },
-  pdfFilename: { fontWeight: 600, fontSize: '14px', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  pdfSubtext: { fontSize: '12px', color: '#888', marginTop: '2px' },
-  pdfDownloadBtn: { backgroundColor: '#52734D', color: '#fff', border: 'none', borderRadius: '10px', padding: '8px 16px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '13px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' },
-  attachBox: { display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', backgroundColor: '#fff', borderRadius: '10px', border: '1px solid rgba(82,115,77,0.2)', marginBottom: '16px' },
-  attachName: { fontWeight: 600, fontSize: '13px', color: '#333' },
-  completedBanner: { backgroundColor: '#dbeafe', border: '1px solid #93c5fd', borderRadius: '10px', padding: '10px 14px', fontSize: '14px', fontWeight: 600, color: '#1e3a5f', marginBottom: '16px', textAlign: 'center' },
-  footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', paddingTop: '8px' },
-  acceptBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '15px', cursor: 'pointer' },
-  completeBtn: { backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px 20px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
-  deleteBtn: { backgroundColor: 'transparent', color: '#c73434', border: '1.5px solid #c73434', borderRadius: '10px', padding: '10px 20px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
-  myQuestInfo: { fontSize: '13px', fontWeight: 600, color: '#1e3a5f' },
-  takenInfo: { fontSize: '13px', color: '#92400e', fontWeight: 500 },
-  rewardGroup: { display: 'flex', alignItems: 'center', gap: '10px', marginLeft: 'auto' },
-  rewardLabel: { fontWeight: 700, fontSize: '14px', color: '#333' },
-  volBadge: { backgroundColor: '#34C759', color: '#fff', fontSize: '12px', fontWeight: 700, padding: '4px 12px', borderRadius: '20px' },
-  paidText: { fontWeight: 700, fontSize: '16px', color: '#34C759' },
-  xpText: { fontWeight: 700, fontSize: '14px', color: '#52734D' },
 };
