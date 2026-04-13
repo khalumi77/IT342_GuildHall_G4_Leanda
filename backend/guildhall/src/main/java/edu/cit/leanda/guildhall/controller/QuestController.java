@@ -1,5 +1,6 @@
 package edu.cit.leanda.guildhall.controller;
 
+import edu.cit.leanda.guildhall.decorator.ApiResponseWrapper;
 import edu.cit.leanda.guildhall.entity.Guild;
 import edu.cit.leanda.guildhall.entity.Quest;
 import edu.cit.leanda.guildhall.entity.User;
@@ -17,7 +18,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -41,6 +41,7 @@ public class QuestController {
     private final GuildRepository guildRepository;
     private final UserRepository userRepository;
     private final MembershipRepository membershipRepository;
+    private final ApiResponseWrapper responseWrapper; // Decorator Pattern
 
     // ── GET quests for a guild ─────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ public class QuestController {
                 .map(q -> toMap(q, me))
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(wrap(quests));
+        return ResponseEntity.ok(responseWrapper.ok(quests)); // Decorator Pattern
     }
 
     // ── POST create quest ──────────────────────────────────────────────────────
@@ -281,7 +282,7 @@ public class QuestController {
                         Comparator.reverseOrder()))
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(wrap(quests));
+        return ResponseEntity.ok(responseWrapper.ok(quests)); // Decorator Pattern
     }
 
     // ── GET quests accepted by current user ────────────────────────────────────
