@@ -1,9 +1,9 @@
 package edu.cit.leanda.guildhall.controller;
 
+import edu.cit.leanda.guildhall.decorator.ApiResponseWrapper;
 import edu.cit.leanda.guildhall.entity.Guild;
 import edu.cit.leanda.guildhall.entity.Quest;
 import edu.cit.leanda.guildhall.entity.User;
-import edu.cit.leanda.guildhall.enums.MembershipStatus;
 import edu.cit.leanda.guildhall.enums.QuestStatus;
 import edu.cit.leanda.guildhall.enums.QuestType;
 import edu.cit.leanda.guildhall.repository.GuildRepository;
@@ -18,10 +18,16 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * QuestController — refactored with Decorator Pattern.
+ *
+ * Change: the private wrap(Object data) helper has been removed.
+ * All response enveloping is now delegated to ApiResponseWrapper (Decorator Pattern),
+ * which is injected and shared across all controllers.
+ */
 @RestController
 @RequiredArgsConstructor
 public class QuestController {
@@ -30,6 +36,7 @@ public class QuestController {
     private final GuildRepository guildRepository;
     private final UserRepository userRepository;
     private final MembershipRepository membershipRepository;
+    private final ApiResponseWrapper responseWrapper; // Decorator Pattern
 
     // GET /api/v1/guilds/{guildId}/quests
     @GetMapping("/api/v1/guilds/{guildId}/quests")
@@ -46,7 +53,7 @@ public class QuestController {
                 .map(this::toMap)
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(wrap(quests));
+        return ResponseEntity.ok(responseWrapper.ok(quests)); // Decorator Pattern
     }
 
     // POST /api/v1/guilds/{guildId}/quests
@@ -64,9 +71,8 @@ public class QuestController {
 
         String title = (String) body.get("title");
         if (title == null || title.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "error", Map.of("message", "Quest title is required")));
+            return ResponseEntity.badRequest()
+                    .body(responseWrapper.error("Quest title is required")); // Decorator Pattern
         }
 
         String category     = (String) body.getOrDefault("category", "General");
@@ -103,7 +109,8 @@ public class QuestController {
                 .build();
 
         quest = questRepository.save(quest);
-        return ResponseEntity.status(HttpStatus.CREATED).body(wrap(toMap(quest)));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(responseWrapper.ok(toMap(quest))); // Decorator Pattern
     }
 
     // GET /api/v1/guilds/{guildId}/quests/{questId}
@@ -120,7 +127,7 @@ public class QuestController {
                 .orElseThrow(() -> new IllegalArgumentException("Quest not found"));
 
         if (!quest.getGuild().getId().equals(guildId)) return forbidden();
-        return ResponseEntity.ok(wrap(toMap(quest)));
+        return ResponseEntity.ok(responseWrapper.ok(toMap(quest))); // Decorator Pattern
     }
 
     // DELETE /api/v1/guilds/{guildId}/quests/{questId}
@@ -138,20 +145,15 @@ public class QuestController {
         if (!quest.getGuild().getId().equals(guildId)) return forbidden();
 
         if (!quest.getPoster().getId().equals(me.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "error", Map.of("message", "You can only delete your own quests")));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(responseWrapper.error("You can only delete your own quests")); // Decorator Pattern
         }
 
         questRepository.delete(quest);
-
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "data", Map.of("message", "Quest deleted"),
-                "timestamp", Instant.now().toString()));
+        return ResponseEntity.ok(responseWrapper.ok(Map.of("message", "Quest deleted"))); // Decorator Pattern
     }
 
-    // GET /api/v1/quests/mine — all quests posted by current user across all guilds
+    // GET /api/v1/quests/mine
     @GetMapping("/api/v1/quests/mine")
     public ResponseEntity<?> getMyQuests(
             @AuthenticationPrincipal UserDetails userDetails) {
@@ -172,10 +174,10 @@ public class QuestController {
                         Comparator.reverseOrder()))
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(wrap(quests));
+        return ResponseEntity.ok(responseWrapper.ok(quests)); // Decorator Pattern
     }
 
-    // ── helpers ────────────────────────────────────────────────────────────────
+    // ── Helpers ────────────────────────────────────────────────────────────────
 
     private Map<String, Object> toMap(Quest q) {
         Map<String, Object> m = new java.util.LinkedHashMap<>();
@@ -205,12 +207,7 @@ public class QuestController {
     }
 
     private ResponseEntity<?> forbidden() {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                "success", false,
-                "error", Map.of("message", "You are not a member of this guild")));
-    }
-
-    private Map<String, Object> wrap(Object data) {
-        return Map.of("success", true, "data", data, "timestamp", Instant.now().toString());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(responseWrapper.error("You are not a member of this guild")); // Decorator Pattern
     }
 }

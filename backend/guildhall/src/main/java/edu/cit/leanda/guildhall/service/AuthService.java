@@ -1,13 +1,5 @@
 package edu.cit.leanda.guildhall.service;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import edu.cit.leanda.guildhall.dto.request.LoginRequest;
 import edu.cit.leanda.guildhall.dto.request.RegisterRequest;
 import edu.cit.leanda.guildhall.dto.request.SkillsRequest;
@@ -17,12 +9,30 @@ import edu.cit.leanda.guildhall.entity.Membership;
 import edu.cit.leanda.guildhall.entity.User;
 import edu.cit.leanda.guildhall.enums.MembershipStatus;
 import edu.cit.leanda.guildhall.enums.Role;
+import edu.cit.leanda.guildhall.factory.UserDtoFactory;
 import edu.cit.leanda.guildhall.repository.GuildRepository;
 import edu.cit.leanda.guildhall.repository.MembershipRepository;
 import edu.cit.leanda.guildhall.repository.UserRepository;
 import edu.cit.leanda.guildhall.security.JwtUtil;
+import edu.cit.leanda.guildhall.strategy.AuthStrategyResolver;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * AuthService — refactored with Factory Method + Strategy patterns.
+ *
+ * Changes from original:
+ *  - login() now delegates to AuthStrategyResolver (Strategy Pattern) instead
+ *    of containing its own authentication logic inline.
+ *  - toUserDto() and calculateRank() have been removed; UserDtoFactory
+ *    (Factory Method Pattern) is injected and used instead.
+ *  - All behaviour is identical from the outside; this is a pure refactor.
+ */
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -33,34 +43,31 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
-    // Valid skill options matching the frontend selection screen
+    // ── Injected via pattern refactors ────────────────────────────────────────
+    private final UserDtoFactory userDtoFactory;          // Factory Method Pattern
+    private final AuthStrategyResolver authStrategyResolver; // Strategy Pattern
+
     private static final List<String> VALID_SKILLS = List.of(
             "Design", "Academic", "Writing", "Media", "Manual Labor", "Tutoring", "IT/Tech"
     );
 
     /**
      * Registers a new adventurer.
-     * Per AC-1: automatically enrolls the new user in "Global Square" guild.
-     * Per AC-2: hashes password with BCrypt, returns JWT.
+     * Auto-enrolls in "Global Square" guild, returns JWT.
      */
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-
-        // Prevent duplicate email
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new IllegalArgumentException("An adventurer with this email already exists");
         }
-
-        // Prevent duplicate username
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new IllegalArgumentException("This adventurer name is already taken");
         }
 
-        // Build and save the new user
         User user = User.builder()
                 .email(request.getEmail())
                 .username(request.getUsername())
-                .password(passwordEncoder.encode(request.getPassword()))  // BCrypt(12)
+                .password(passwordEncoder.encode(request.getPassword()))
                 .role(Role.ROLE_ADVENTURER)
                 .level(1)
                 .xp(0)
@@ -68,8 +75,6 @@ public class AuthService {
                 .build();
 
         user = userRepository.save(user);
-
-        // AC-1: Auto-enroll in "Global Square" guild
         autoEnrollInGlobalSquare(user);
 
         String token = jwtUtil.generateToken(user.getEmail());
@@ -77,65 +82,41 @@ public class AuthService {
         return AuthResponse.builder()
                 .success(true)
                 .token(token)
-                .user(toUserDto(user, true))   // isNewUser = true → shows skills screen
+                .user(userDtoFactory.create(user, true))  // Factory Method Pattern
                 .build();
     }
 
     /**
-     * Logs in an existing adventurer.
-     * Accepts either username or email (email is case-insensitive).
-     * Returns a JWT on success; throws on invalid credentials.
+     * Logs in via email/password.
+     * Delegates to AuthStrategyResolver → EmailAuthStrategy (Strategy Pattern).
      */
     public AuthResponse login(LoginRequest request) {
-        // Try to find by username first, then by email (case-insensitive)
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseGet(() -> userRepository.findByEmail(request.getUsername().toLowerCase())
-                        .orElseThrow(() -> new BadCredentialsException("Invalid credentials")));
-
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new BadCredentialsException("Invalid credentials");
-        }
-
-        String token = jwtUtil.generateToken(user.getEmail());
-
-        return AuthResponse.builder()
-                .success(true)
-                .token(token)
-                .user(toUserDto(user, false))  // isNewUser = false → skip skills screen
-                .build();
+        return authStrategyResolver.resolve(request);     // Strategy Pattern
     }
 
     /**
-     * Saves the skills selected on the first-time skills screen.
-     * Called right after registration when the user clicks "Continue."
+     * Saves skills selected on the first-time onboarding screen.
      */
     @Transactional
     public AuthResponse saveSkills(String email, SkillsRequest request) {
-        System.out.println("[AuthService] saveSkills called for email: " + email);
-        System.out.println("[AuthService] request skills: " + request.getSkills());
-
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Adventurer not found"));
-        System.out.println("[AuthService] found user: " + user.getId() + ", " + user.getEmail());
 
-        // Only keep valid skill names from the allowed list
         List<String> validatedSkills = request.getSkills() == null
                 ? new ArrayList<>()
                 : request.getSkills().stream()
                         .filter(VALID_SKILLS::contains)
                         .toList();
-        System.out.println("[AuthService] validated skills: " + validatedSkills);
 
         user.setSkills(new ArrayList<>(validatedSkills));
         user = userRepository.save(user);
-        System.out.println("[AuthService] user saved with skills");
 
         String token = jwtUtil.generateToken(user.getEmail());
 
         return AuthResponse.builder()
                 .success(true)
                 .token(token)
-                .user(toUserDto(user, false))
+                .user(userDtoFactory.create(user, false)) // Factory Method Pattern
                 .build();
     }
 
@@ -148,15 +129,12 @@ public class AuthService {
 
         return AuthResponse.builder()
                 .success(true)
-                .user(toUserDto(user, false))
+                .user(userDtoFactory.create(user, false)) // Factory Method Pattern
                 .build();
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    /**
-     * Finds (or creates) the "Global Square" guild and enrolls the user in it.
-     */
     private void autoEnrollInGlobalSquare(User user) {
         Guild globalSquare = guildRepository.findByName("Global Square")
                 .orElseGet(() -> guildRepository.save(
@@ -167,10 +145,7 @@ public class AuthService {
                                 .build()
                 ));
 
-        boolean alreadyMember = membershipRepository
-                .existsByUserIdAndGuildId(user.getId(), globalSquare.getId());
-
-        if (!alreadyMember) {
+        if (!membershipRepository.existsByUserIdAndGuildId(user.getId(), globalSquare.getId())) {
             membershipRepository.save(
                     Membership.builder()
                             .user(user)
@@ -179,41 +154,5 @@ public class AuthService {
                             .build()
             );
         }
-    }
-
-    /**
-     * Maps a User entity to the DTO that gets sent back to the client.
-     * Calculates rank title from XP thresholds.
-     */
-    private AuthResponse.UserDto toUserDto(User user, boolean isNewUser) {
-        int xp    = user.getXp()    != null ? user.getXp()    : 0;
-        int level = user.getLevel() != null ? user.getLevel() : 1;
- 
-        return AuthResponse.UserDto.builder()
-                .id(user.getId())
-                .email(user.getEmail())
-                .username(user.getUsername())
-                .role(user.getRole().name())
-                .level(level)
-                .xp(xp)
-                .rank(calculateRank(level))          // <-- level-based
-                .skills(user.getSkills())
-                .newUser(isNewUser)
-                .bio(user.getBio())
-                .profilePictureUrl(user.getProfilePictureUrl())
-                .googleSub(user.getGoogleSub())
-                .build();
-    }
-
-    /**
-     * Rank titles based on XP thresholds.
-     * Bronze → Silver → Gold → Mithril
-     */
-    private String calculateRank(int level) {
-        if (level >= 71) return "Adamantite";
-        if (level >= 51) return "Mithril";
-        if (level >= 31) return "Gold";
-        if (level >= 21) return "Silver";
-        return "Bronze";
     }
 }
