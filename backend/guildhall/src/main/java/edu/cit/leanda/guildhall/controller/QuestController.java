@@ -81,7 +81,7 @@ public class QuestController {
         String title = (String) body.get("title");
         if (title == null || title.isBlank()) {
             return ResponseEntity.badRequest()
-                    .body(error("Quest title is required"));
+                    .body(responseWrapper.error("Quest title is required"));
         }
 
         String category     = (String) body.getOrDefault("category", "General");
@@ -119,7 +119,7 @@ public class QuestController {
 
         quest = questRepository.save(quest);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(wrap(toMap(quest, me)));
+                .body(responseWrapper.ok(toMap(quest, me)));
     }
 
     // ── GET single quest ───────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ public class QuestController {
                 .orElseThrow(() -> new IllegalArgumentException("Quest not found"));
 
         if (!quest.getGuild().getId().equals(guildId)) return forbidden();
-        return ResponseEntity.ok(wrap(toMap(quest, me)));
+        return ResponseEntity.ok(responseWrapper.ok(toMap(quest, me)));
     }
 
     // ── DELETE quest ───────────────────────────────────────────────────────────
@@ -157,11 +157,11 @@ public class QuestController {
 
         if (!quest.getPoster().getId().equals(me.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(error("You can only delete your own quests"));
+                    .body(responseWrapper.error("You can only delete your own quests"));
         }
 
         questRepository.delete(quest);
-        return ResponseEntity.ok(wrap(Map.of("message", "Quest deleted")));
+        return ResponseEntity.ok(responseWrapper.ok(Map.of("message", "Quest deleted")));
     }
 
     // ── POST accept quest ──────────────────────────────────────────────────────
@@ -190,13 +190,13 @@ public class QuestController {
         // Cannot accept own quest
         if (quest.getPoster().getId().equals(me.getId())) {
             return ResponseEntity.badRequest()
-                    .body(error("You cannot accept your own quest"));
+                    .body(responseWrapper.error("You cannot accept your own quest"));
         }
 
         // Quest must be open
         if (quest.getStatus() != QuestStatus.OPEN) {
             return ResponseEntity.badRequest()
-                    .body(error("This quest is no longer available"));
+                    .body(responseWrapper.error("This quest is no longer available"));
         }
 
         // Max 3 accepted quests per guild
@@ -209,7 +209,7 @@ public class QuestController {
 
         if (pendingInGuild >= 3) {
             return ResponseEntity.badRequest()
-                    .body(error(
+                    .body(responseWrapper.error(
                             "You can only accept up to 3 quests per guild at a time"));
         }
 
@@ -217,7 +217,7 @@ public class QuestController {
         quest.setStatus(QuestStatus.PENDING);
         quest = questRepository.save(quest);
 
-        return ResponseEntity.ok(wrap(toMap(quest, me)));
+        return ResponseEntity.ok(responseWrapper.ok(toMap(quest, me)));
     }
 
     // ── POST complete quest (commissioner only) ────────────────────────────────
@@ -241,18 +241,18 @@ public class QuestController {
         // Only the commissioner can mark as complete
         if (!quest.getPoster().getId().equals(me.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(error("Only the quest commissioner can mark it complete"));
+                    .body(responseWrapper.error("Only the quest commissioner can mark it complete"));
         }
 
         if (quest.getStatus() != QuestStatus.PENDING) {
             return ResponseEntity.badRequest()
-                    .body(error("Only pending quests can be marked complete"));
+                    .body(responseWrapper.error("Only pending quests can be marked complete"));
         }
 
         quest.setStatus(QuestStatus.COMPLETED);
         quest = questRepository.save(quest);
 
-        return ResponseEntity.ok(wrap(toMap(quest, me)));
+        return ResponseEntity.ok(responseWrapper.ok(toMap(quest, me)));
     }
 
     // ── GET quests posted by current user ──────────────────────────────────────
@@ -309,7 +309,7 @@ public class QuestController {
                         Comparator.reverseOrder()))
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(wrap(quests));
+        return ResponseEntity.ok(responseWrapper.ok(quests));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
@@ -356,22 +356,8 @@ public class QuestController {
         return membershipRepository.existsByUserIdAndGuildId(userId, guildId);
     }
 
-    private Map<String, Object> wrap(Object data) {
-        return Map.of(
-                "success", true,
-                "data", data,
-                "timestamp", Instant.now().toString());
-    }
-
-    private Map<String, Object> error(String message) {
-        return Map.of(
-                "success", false,
-                "error", Map.of("message", message),
-                "timestamp", Instant.now().toString());
-    }
-
     private ResponseEntity<?> forbidden() {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(error("You are not a member of this guild"));
+                .body(responseWrapper.error("You are not a member of this guild"));
     }
 }
