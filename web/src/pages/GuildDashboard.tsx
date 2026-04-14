@@ -357,7 +357,14 @@ export default function GuildDashboard() {
       {acceptedQuest && (
         <AcceptedPopup
           quest={acceptedQuest}
-          onOpenChat={() => { setAcceptedQuest(null); alert('Chat feature coming soon!'); }}
+          onOpenChat={() => {
+            setAcceptedQuest(null);
+            // Send the auto-acceptance message via REST, then navigate
+            api.post(`/guilds/${guildId}/quests/${acceptedQuest.id}/messages`, {
+              content: `${user?.username} accepted your quest`
+            }).catch(() => {});
+            navigate(`/chat?questId=${acceptedQuest.id}`);
+          }}
           onClose={() => setAcceptedQuest(null)}
         />
       )}
