@@ -1,18 +1,21 @@
 package edu.cit.leanda.guildhall.controller;
 
 import edu.cit.leanda.guildhall.decorator.ApiResponseWrapper;
-import edu.cit.leanda.guildhall.entity.Message;
+import edu.cit.leanda.guildhall.entity.Conversation;
+import edu.cit.leanda.guildhall.entity.DirectMessage;
 import edu.cit.leanda.guildhall.entity.Quest;
 import edu.cit.leanda.guildhall.entity.User;
-import edu.cit.leanda.guildhall.repository.MessageRepository;
-import edu.cit.leanda.guildhall.repository.QuestRepository;
+import edu.cit.leanda.guildhall.repository.ConversationRepository;
+import edu.cit.leanda.guildhall.repository.DirectMessageRepository;
 import edu.cit.leanda.guildhall.repository.UserRepository;
 import edu.cit.leanda.guildhall.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
@@ -22,229 +25,356 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * ChatController — handles WebSocket STOMP messaging and REST history/thread endpoints.
+ * ChatController — 1-to-1 user conversations via WebSocket + REST.
  *
- * WebSocket flow:
- *   Client SUBSCRIBE  → /topic/quest/{questId}
- *   Client SEND       → /app/chat/{questId}
- *   Server BROADCAST  → /topic/quest/{questId}
+ * One Conversation per user-pair. Messages go to /topic/conversation/{id}.
+ * Sidebar updates go to /topic/user/{userId}/conversations.
  *
- * REST endpoints:
- *   GET /api/v1/guilds/{guildId}/quests/{questId}/messages — message history
- *   GET /api/v1/chat/threads — list of chat threads (quests) the current user is part of
+ * REST:
+ *   GET  /api/v1/chat/conversations                    — sidebar list
+ *   POST /api/v1/chat/conversations/{otherUserId}      — open/create conversation
+ *   GET  /api/v1/chat/conversations/{id}/messages      — message history
+ *   POST /api/v1/chat/conversations/{id}/messages      — send (REST / system fallback)
+ *   GET  /api/v1/chat/users/search?q=                 — search users
+ *   POST /api/v1/chat/system/quest-accepted            — automated quest notification
  */
 @RestController
+@RequestMapping("/api/v1/chat")
 @RequiredArgsConstructor
 public class ChatController {
 
-    private final MessageRepository messageRepository;
-    private final QuestRepository questRepository;
+    private final ConversationRepository conversationRepository;
+    private final DirectMessageRepository directMessageRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ApiResponseWrapper responseWrapper;
     private final JwtUtil jwtUtil;
 
-    // ── WebSocket: send a message ──────────────────────────────────────────────
+    // ── WebSocket ─────────────────────────────────────────────────────────────
 
-    @MessageMapping("/chat/{questId}")
-    public void sendMessage(
+    @MessageMapping("/chat/{conversationId}")
+    public void handleWebSocketMessage(
             @Payload Map<String, Object> payload,
-            org.springframework.messaging.simp.stomp.StompHeaderAccessor headerAccessor) {
+            StompHeaderAccessor headerAccessor) {
 
-        // Extract JWT from STOMP native headers (sent during CONNECT)
-        String token = null;
-        List<String> authHeaders = headerAccessor.getNativeHeader("Authorization");
-        if (authHeaders != null && !authHeaders.isEmpty()) {
-            String authHeader = authHeaders.get(0);
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                token = authHeader.substring(7);
-            }
-        }
-
+        String token = extractToken(headerAccessor);
         if (token == null || !jwtUtil.isTokenValid(token)) return;
 
-        String email = jwtUtil.extractEmail(token);
-        User sender = userRepository.findByEmail(email).orElse(null);
+        User sender = userRepository.findByEmail(jwtUtil.extractEmail(token)).orElse(null);
         if (sender == null) return;
 
-        String questIdStr = (String) payload.get("questId");
-        String content = (String) payload.get("content");
-        if (questIdStr == null || content == null || content.isBlank()) return;
+        String convIdStr = (String) payload.get("conversationId");
+        String content   = (String) payload.get("content");
+        if (convIdStr == null || content == null || content.isBlank()) return;
 
-        Long questId;
-        try { questId = Long.parseLong(questIdStr); } catch (NumberFormatException e) { return; }
+        Long convId;
+        try { convId = Long.parseLong(convIdStr); } catch (NumberFormatException e) { return; }
 
-        Quest quest = questRepository.findById(questId).orElse(null);
-        if (quest == null) return;
+        Conversation conv = conversationRepository.findById(convId).orElse(null);
+        if (conv == null || !isParticipant(conv, sender.getId())) return;
 
-        // Verify sender is poster or helper
-        boolean isParticipant = quest.getPoster().getId().equals(sender.getId()) ||
-                (quest.getHelper() != null && quest.getHelper().getId().equals(sender.getId()));
-        if (!isParticipant) return;
-
-        Message message = Message.builder()
-                .quest(quest)
+        DirectMessage msg = DirectMessage.builder()
+                .conversation(conv)
                 .sender(sender)
                 .content(content.trim())
+                .messageType(DirectMessage.MessageType.TEXT)
                 .isRead(false)
                 .sentAt(LocalDateTime.now())
                 .build();
-        message = messageRepository.save(message);
+        msg = directMessageRepository.save(msg);
 
-        Map<String, Object> outgoing = buildMessageMap(message);
-        messagingTemplate.convertAndSend("/topic/quest/" + questId, outgoing);
+        Map<String, Object> outgoing = buildMessageMap(msg);
+        messagingTemplate.convertAndSend("/topic/conversation/" + convId, outgoing);
+
+        // Notify both users' sidebar listeners
+        User other = conv.getUser1().getId().equals(sender.getId()) ? conv.getUser2() : conv.getUser1();
+        broadcastSidebarUpdate(conv, sender, other);
+        broadcastSidebarUpdate(conv, other, sender);
     }
 
-    // ── REST: message history ──────────────────────────────────────────────────
+    // ── GET: sidebar list ─────────────────────────────────────────────────────
 
-    @GetMapping("/api/v1/guilds/{guildId}/quests/{questId}/messages")
-    public ResponseEntity<?> getMessages(
-            @PathVariable Long guildId,
-            @PathVariable Long questId,
-            @AuthenticationPrincipal UserDetails userDetails) {
+    @GetMapping("/conversations")
+    public ResponseEntity<?> getConversations(@AuthenticationPrincipal UserDetails ud) {
+        User me = getMe(ud);
 
-        User me = userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        Quest quest = questRepository.findById(questId)
-                .orElseThrow(() -> new IllegalArgumentException("Quest not found"));
-
-        if (!quest.getGuild().getId().equals(guildId)) {
-            return ResponseEntity.status(403).body(responseWrapper.error("Quest not in this guild"));
-        }
-
-        boolean isParticipant = quest.getPoster().getId().equals(me.getId()) ||
-                (quest.getHelper() != null && quest.getHelper().getId().equals(me.getId()));
-
-        if (!isParticipant) {
-            return ResponseEntity.status(403).body(responseWrapper.error("You are not a participant in this quest chat"));
-        }
-
-        List<Map<String, Object>> messages = messageRepository
-                .findByQuestIdOrderBySentAtAsc(questId)
+        List<Map<String, Object>> result = conversationRepository.findAllForUser(me.getId())
                 .stream()
-                .map(this::buildMessageMap)
-                .collect(Collectors.toList());
-
-        return ResponseEntity.ok(responseWrapper.ok(messages));
-    }
-
-    // ── REST: list chat threads for current user ───────────────────────────────
-
-    /**
-     * Returns all quests where the current user is poster OR helper,
-     * enriched with the latest message and unread count.
-     * Used to populate the chat sidebar.
-     */
-    @GetMapping("/api/v1/chat/threads")
-    public ResponseEntity<?> getChatThreads(
-            @AuthenticationPrincipal UserDetails userDetails) {
-
-        User me = userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        List<Quest> posted = questRepository.findByPosterId(me.getId());
-        List<Quest> helped = questRepository.findByHelperId(me.getId());
-
-        Set<Long> seen = new HashSet<>();
-        List<Quest> threads = new ArrayList<>();
-        for (Quest q : posted) { if (q.getHelper() != null && seen.add(q.getId())) threads.add(q); }
-        for (Quest q : helped) { if (seen.add(q.getId())) threads.add(q); }
-
-        List<Map<String, Object>> result = threads.stream()
-                .map(q -> {
-                    List<Message> msgs = messageRepository.findByQuestIdOrderBySentAtAsc(q.getId());
-                    Message last = msgs.isEmpty() ? null : msgs.get(msgs.size() - 1);
-                    long unread = msgs.stream()
-                            .filter(m -> !m.getSender().getId().equals(me.getId()) && !m.getIsRead())
-                            .count();
-
-                    // Determine the "other" participant
-                    User other = q.getPoster().getId().equals(me.getId()) ? q.getHelper() : q.getPoster();
-
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("questId", q.getId());
-                    m.put("questTitle", q.getTitle());
-                    m.put("guildId", q.getGuild().getId());
-                    m.put("guildName", q.getGuild().getName());
-                    m.put("otherUserId", other != null ? other.getId() : null);
-                    m.put("otherUsername", other != null ? other.getUsername() : null);
-                    m.put("otherProfilePicture", other != null ? other.getProfilePictureUrl() : null);
-                    m.put("lastMessage", last != null ? last.getContent() : null);
-                    m.put("lastMessageAt", last != null ? last.getSentAt().toString() : null);
-                    m.put("unreadCount", unread);
-                    return m;
-                })
+                .map(conv -> buildConversationMap(conv, me.getId()))
                 .sorted((a, b) -> {
-                    String aTime = (String) a.get("lastMessageAt");
-                    String bTime = (String) b.get("lastMessageAt");
-                    if (aTime == null && bTime == null) return 0;
-                    if (aTime == null) return 1;
-                    if (bTime == null) return -1;
-                    return bTime.compareTo(aTime);
+                    String ta = (String) a.get("lastMessageAt");
+                    String tb = (String) b.get("lastMessageAt");
+                    if (ta == null && tb == null) return 0;
+                    if (ta == null) return 1;
+                    if (tb == null) return -1;
+                    return tb.compareTo(ta);
                 })
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(responseWrapper.ok(result));
     }
 
-    // ── REST: post a message (REST fallback / initial system message) ──────────
+    // ── POST: open/create conversation with another user ─────────────────────
 
-    @PostMapping("/api/v1/guilds/{guildId}/quests/{questId}/messages")
-    public ResponseEntity<?> postMessage(
-            @PathVariable Long guildId,
-            @PathVariable Long questId,
-            @RequestBody Map<String, String> body,
-            @AuthenticationPrincipal UserDetails userDetails) {
+    @PostMapping("/conversations/{otherUserId}")
+    public ResponseEntity<?> openConversation(
+            @PathVariable Long otherUserId,
+            @AuthenticationPrincipal UserDetails ud) {
 
-        User me = userRepository.findByEmail(userDetails.getUsername())
+        User me = getMe(ud);
+        if (me.getId().equals(otherUserId)) {
+            return ResponseEntity.badRequest()
+                    .body(responseWrapper.error("Cannot start a conversation with yourself"));
+        }
+        User other = userRepository.findById(otherUserId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        Quest quest = questRepository.findById(questId)
-                .orElseThrow(() -> new IllegalArgumentException("Quest not found"));
+        Conversation conv = getOrCreate(me, other);
+        return ResponseEntity.ok(responseWrapper.ok(buildConversationMap(conv, me.getId())));
+    }
 
-        if (!quest.getGuild().getId().equals(guildId)) {
-            return ResponseEntity.status(403).body(responseWrapper.error("Quest not in this guild"));
+    // ── GET: message history ──────────────────────────────────────────────────
+
+    @GetMapping("/conversations/{conversationId}/messages")
+    public ResponseEntity<?> getMessages(
+            @PathVariable Long conversationId,
+            @AuthenticationPrincipal UserDetails ud) {
+
+        User me = getMe(ud);
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new IllegalArgumentException("Conversation not found"));
+
+        if (!isParticipant(conv, me.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(responseWrapper.error("Not a participant"));
         }
 
-        boolean isParticipant = quest.getPoster().getId().equals(me.getId()) ||
-                (quest.getHelper() != null && quest.getHelper().getId().equals(me.getId()));
-        if (!isParticipant) {
-            return ResponseEntity.status(403).body(responseWrapper.error("Not a participant"));
+        List<Map<String, Object>> messages = directMessageRepository
+                .findByConversationIdOrderBySentAtAsc(conversationId)
+                .stream().map(this::buildMessageMap).collect(Collectors.toList());
+
+        return ResponseEntity.ok(responseWrapper.ok(messages));
+    }
+
+    // ── POST: send message (REST fallback / system messages) ─────────────────
+
+    @PostMapping("/conversations/{conversationId}/messages")
+    public ResponseEntity<?> postMessage(
+            @PathVariable Long conversationId,
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserDetails ud) {
+
+        User me = getMe(ud);
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new IllegalArgumentException("Conversation not found"));
+
+        if (!isParticipant(conv, me.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(responseWrapper.error("Not a participant"));
         }
 
-        String content = body.get("content");
+        String content = (String) body.get("content");
         if (content == null || content.isBlank()) {
             return ResponseEntity.badRequest().body(responseWrapper.error("Content is required"));
         }
 
-        Message message = Message.builder()
-                .quest(quest)
-                .sender(me)
-                .content(content.trim())
-                .isRead(false)
-                .sentAt(LocalDateTime.now())
-                .build();
-        message = messageRepository.save(message);
+        DirectMessage.MessageType type = DirectMessage.MessageType.TEXT;
+        try { type = DirectMessage.MessageType.valueOf((String) body.getOrDefault("messageType", "TEXT")); }
+        catch (Exception ignored) { }
 
-        Map<String, Object> outgoing = buildMessageMap(message);
-        messagingTemplate.convertAndSend("/topic/quest/" + questId, outgoing);
+        DirectMessage msg = DirectMessage.builder()
+                .conversation(conv).sender(me).content(content.trim())
+                .messageType(type)
+                .questId(parseLong(body.get("questId")))
+                .guildId(parseLong(body.get("guildId")))
+                .questTitle((String) body.get("questTitle"))
+                .guildName((String) body.get("guildName"))
+                .isRead(false).sentAt(LocalDateTime.now())
+                .build();
+        msg = directMessageRepository.save(msg);
+
+        Map<String, Object> outgoing = buildMessageMap(msg);
+        messagingTemplate.convertAndSend("/topic/conversation/" + conversationId, outgoing);
+
+        User other = conv.getUser1().getId().equals(me.getId()) ? conv.getUser2() : conv.getUser1();
+        broadcastSidebarUpdate(conv, me, other);
+        broadcastSidebarUpdate(conv, other, me);
 
         return ResponseEntity.ok(responseWrapper.ok(outgoing));
     }
 
-    // ── Helper ─────────────────────────────────────────────────────────────────
+    // ── GET: user search ──────────────────────────────────────────────────────
 
-    private Map<String, Object> buildMessageMap(Message m) {
+    @GetMapping("/users/search")
+    public ResponseEntity<?> searchUsers(
+            @RequestParam String q,
+            @AuthenticationPrincipal UserDetails ud) {
+
+        User me = getMe(ud);
+        if (q == null || q.isBlank()) return ResponseEntity.ok(responseWrapper.ok(List.of()));
+
+        List<Map<String, Object>> results = userRepository.findAll().stream()
+                .filter(u -> !u.getId().equals(me.getId()))
+                .filter(u -> u.getUsername().toLowerCase().contains(q.toLowerCase().trim()))
+                .limit(10)
+                .map(u -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", u.getId());
+                    m.put("username", u.getUsername());
+                    m.put("profilePictureUrl", u.getProfilePictureUrl());
+                    m.put("rank", calculateRank(u.getLevel() != null ? u.getLevel() : 1));
+                    return m;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(responseWrapper.ok(results));
+    }
+
+    // ── POST: system quest-accepted message ───────────────────────────────────
+
+    /**
+     * Called from QuestController after accept. Opens/finds the conversation
+     * between helper and poster, persists a SYSTEM message with quest metadata,
+     * and broadcasts to both users.
+     */
+    @PostMapping("/system/quest-accepted")
+    public ResponseEntity<?> questAccepted(
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserDetails ud) {
+
+        User helper = getMe(ud);
+
+        Long posterId  = parseLong(body.get("posterId"));
+        Long questId   = parseLong(body.get("questId"));
+        Long guildId   = parseLong(body.get("guildId"));
+        String questTitle = (String) body.get("questTitle");
+        String guildName  = (String) body.get("guildName");
+
+        if (posterId == null || questId == null || guildId == null) {
+            return ResponseEntity.badRequest().body(responseWrapper.error("Missing required fields"));
+        }
+
+        User poster = userRepository.findById(posterId)
+                .orElseThrow(() -> new IllegalArgumentException("Poster not found"));
+
+        Conversation conv = getOrCreate(helper, poster);
+
+        Map<String, Object> outgoing = sendQuestAcceptedNotification(helper, poster,
+                questId, guildId, questTitle, guildName);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("conversationId", outgoing.get("conversationId"));
+        result.put("message", outgoing);
+        return ResponseEntity.ok(responseWrapper.ok(result));
+    }
+
+    public Map<String, Object> sendQuestAcceptedNotification(
+            User helper,
+            User poster,
+            Long questId,
+            Long guildId,
+            String questTitle,
+            String guildName) {
+
+        Conversation conv = getOrCreate(helper, poster);
+        String content = helper.getUsername() + " accepted your quest";
+
+        DirectMessage msg = DirectMessage.builder()
+                .conversation(conv).sender(helper).content(content)
+                .messageType(DirectMessage.MessageType.SYSTEM)
+                .questId(questId).guildId(guildId)
+                .questTitle(questTitle).guildName(guildName)
+                .isRead(false).sentAt(LocalDateTime.now())
+                .build();
+        msg = directMessageRepository.save(msg);
+
+        Map<String, Object> outgoing = buildMessageMap(msg);
+        messagingTemplate.convertAndSend("/topic/conversation/" + conv.getId(), outgoing);
+        broadcastSidebarUpdate(conv, poster, helper);
+        broadcastSidebarUpdate(conv, helper, poster);
+        return outgoing;
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private Conversation getOrCreate(User a, User b) {
+        User u1 = a.getId() < b.getId() ? a : b;
+        User u2 = a.getId() < b.getId() ? b : a;
+        return conversationRepository.findBetween(u1.getId(), u2.getId())
+                .orElseGet(() -> conversationRepository.save(
+                        Conversation.builder().user1(u1).user2(u2).build()));
+    }
+
+    private boolean isParticipant(Conversation c, Long uid) {
+        return c.getUser1().getId().equals(uid) || c.getUser2().getId().equals(uid);
+    }
+
+    private User getMe(UserDetails ud) {
+        return userRepository.findByEmail(ud.getUsername())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    }
+
+    private String extractToken(StompHeaderAccessor accessor) {
+        List<String> h = accessor.getNativeHeader("Authorization");
+        if (h == null || h.isEmpty()) return null;
+        String v = h.get(0);
+        return (v != null && v.startsWith("Bearer ")) ? v.substring(7) : null;
+    }
+
+    private Long parseLong(Object val) {
+        if (val == null) return null;
+        try { return Long.parseLong(val.toString()); } catch (Exception e) { return null; }
+    }
+
+    private String calculateRank(int level) {
+        if (level >= 71) return "Adamantite";
+        if (level >= 51) return "Mithril";
+        if (level >= 31) return "Gold";
+        if (level >= 21) return "Silver";
+        return "Bronze";
+    }
+
+    private Map<String, Object> buildConversationMap(Conversation conv, Long myId) {
+        User other = conv.getUser1().getId().equals(myId) ? conv.getUser2() : conv.getUser1();
+        List<DirectMessage> msgs = directMessageRepository
+                .findByConversationIdOrderBySentAtAsc(conv.getId());
+        DirectMessage last = msgs.isEmpty() ? null : msgs.get(msgs.size() - 1);
+        long unread = directMessageRepository
+                .countByConversationIdAndSenderIdNotAndIsReadFalse(conv.getId(), myId);
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("conversationId", conv.getId());
+        m.put("otherUserId", other.getId());
+        m.put("otherUsername", other.getUsername());
+        m.put("otherProfilePicture", other.getProfilePictureUrl());
+        m.put("lastMessage", last != null ? last.getContent() : null);
+        m.put("lastMessageType", last != null ? last.getMessageType().name() : null);
+        m.put("lastMessageAt", last != null && last.getSentAt() != null ? last.getSentAt().toString() : null);
+        m.put("unreadCount", unread);
+        return m;
+    }
+
+    private Map<String, Object> buildMessageMap(DirectMessage m) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", m.getId());
-        map.put("questId", m.getQuest().getId());
+        map.put("conversationId", m.getConversation().getId());
         map.put("senderId", m.getSender().getId());
         map.put("senderUsername", m.getSender().getUsername());
         map.put("senderProfilePicture", m.getSender().getProfilePictureUrl());
         map.put("content", m.getContent());
+        map.put("messageType", m.getMessageType().name());
+        map.put("questId", m.getQuestId());
+        map.put("guildId", m.getGuildId());
+        map.put("questTitle", m.getQuestTitle());
+        map.put("guildName", m.getGuildName());
         map.put("isRead", m.getIsRead());
         map.put("sentAt", m.getSentAt() != null ? m.getSentAt().toString() : null);
         return map;
+    }
+
+    private void broadcastSidebarUpdate(Conversation conv, User recipient, User other) {
+        Map<String, Object> update = buildConversationMap(conv, recipient.getId());
+        update.put("type", "CONVERSATION_UPDATE");
+        messagingTemplate.convertAndSend("/topic/user/" + recipient.getId() + "/conversations", update);
     }
 }

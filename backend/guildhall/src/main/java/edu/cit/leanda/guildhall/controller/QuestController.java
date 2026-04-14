@@ -42,6 +42,7 @@ public class QuestController {
     private final UserRepository userRepository;
     private final MembershipRepository membershipRepository;
     private final ApiResponseWrapper responseWrapper; // Decorator Pattern
+    private final ChatController chatController;
 
     // ── GET quests for a guild ─────────────────────────────────────────────────
 
@@ -216,6 +217,14 @@ public class QuestController {
         quest.setHelper(me);
         quest.setStatus(QuestStatus.PENDING);
         quest = questRepository.save(quest);
+
+        chatController.sendQuestAcceptedNotification(
+                me,
+                quest.getPoster(),
+                quest.getId(),
+                quest.getGuild().getId(),
+                quest.getTitle(),
+                quest.getGuild().getName());
 
         return ResponseEntity.ok(responseWrapper.ok(toMap(quest, me)));
     }

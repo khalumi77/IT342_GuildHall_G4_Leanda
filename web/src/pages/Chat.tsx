@@ -1,14 +1,8 @@
 // src/pages/Chat.tsx
 //
-// Real-time quest chat using STOMP over WebSocket.
-// Layout: sidebar (thread list + search) | main chat area
-//
-// WebSocket connection lifecycle:
-//  1. Connect to /ws with JWT in header
-//  2. Subscribe to /topic/quest/{questId} when opening a thread
-//  3. Send to /app/chat/{questId} on message submit
-//  4. REST fallback: POST /api/v1/guilds/{guildId}/quests/{questId}/messages
-//     (used for the auto "accepted your quest" message)
+// 1-to-1 user chat using STOMP over WebSocket.
+// One conversation per user-pair — quest-acceptance shows as a clickable card.
+// Sidebar: recent conversations + username search to start new ones.
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -18,280 +12,328 @@ import api from '../api/authApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ChatThread {
-  questId: number;
-  questTitle: string;
-  guildId: number;
-  guildName: string;
-  otherUserId: number | null;
-  otherUsername: string | null;
+interface Conversation {
+  conversationId: number;
+  otherUserId: number;
+  otherUsername: string;
   otherProfilePicture: string | null;
   lastMessage: string | null;
+  lastMessageType: 'TEXT' | 'SYSTEM' | null;
   lastMessageAt: string | null;
   unreadCount: number;
 }
 
 interface ChatMessage {
   id: number;
-  questId: number;
+  conversationId: number;
   senderId: number;
   senderUsername: string;
   senderProfilePicture: string | null;
   content: string;
+  messageType: 'TEXT' | 'SYSTEM';
+  questId: number | null;
+  guildId: number | null;
+  questTitle: string | null;
+  guildName: string | null;
   isRead: boolean;
   sentAt: string | null;
 }
 
-// ── STOMP client (plain SockJS + STOMP.js loaded from CDN) ───────────────────
-// We reference the global `Stomp` and `SockJS` from window after scripts load.
-declare global {
-  interface Window {
-    Stomp: any;
-    SockJS: any;
-  }
+interface UserSearchResult {
+  id: number;
+  username: string;
+  profilePictureUrl: string | null;
+  rank: string;
 }
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1').replace('/api/v1', '');
+// ── Globals ───────────────────────────────────────────────────────────────────
 
-// ── Avatar helper ─────────────────────────────────────────────────────────────
+declare global { interface Window { Stomp: any; SockJS: any; } }
+const WS_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1').replace('/api/v1', '');
 
-function Avatar({ username, pictureUrl, size = 36 }: {
-  username: string | null; pictureUrl: string | null; size?: number;
-}) {
-  if (pictureUrl) {
-    return <img src={pictureUrl} alt={username ?? ''} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />;
-  }
+// ── Avatar ────────────────────────────────────────────────────────────────────
+
+function Avatar({ username, pic, size = 36 }: { username: string | null; pic: string | null; size?: number }) {
+  if (pic) return <img src={pic} alt={username ?? ''} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />;
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      backgroundColor: '#52734D', color: '#DDFFBC',
-      fontFamily: "'Prompt', sans-serif", fontWeight: 700,
-      fontSize: size * 0.38, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0, userSelect: 'none',
-    }}>
+    <div style={{ width: size, height: size, borderRadius: '50%', backgroundColor: '#52734D', color: '#DDFFBC', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: Math.round(size * 0.38), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, userSelect: 'none' }}>
       {(username?.[0] ?? '?').toUpperCase()}
     </div>
   );
 }
 
-// ── Format timestamp ──────────────────────────────────────────────────────────
+// ── Time format ───────────────────────────────────────────────────────────────
 
-function formatTime(dateStr: string | null): string {
-  if (!dateStr) return '';
+function fmtTime(s: string | null): string {
+  if (!s) return '';
   try {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const isToday = d.toDateString() === now.toDateString();
-    if (isToday) return d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(s), now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+    if (diffDays < 7) return d.toLocaleDateString('en-PH', { weekday: 'short' });
     return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
   } catch { return ''; }
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+function fmtFull(s: string | null): string {
+  if (!s) return '';
+  try { return new Date(s).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
+}
+
+// ── System message bubble ─────────────────────────────────────────────────────
+
+function SystemBubble({ msg, onClick }: { msg: ChatMessage; onClick: () => void }) {
+  return (
+    <div style={sm.wrap} onClick={onClick} title="Click to view quest">
+      <div style={sm.tag}>
+        <svg width="13" height="13" viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
+          <rect x="4" y="2" width="22" height="32" rx="3" fill="#52734D"/>
+          <rect x="18" y="0" width="14" height="18" rx="2" fill="#34C759"/>
+          <polygon points="18,18 25,14 32,18" fill="#52734D"/>
+        </svg>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msg.questTitle}</span>
+        <span style={sm.guildChip}>{msg.guildName}</span>
+      </div>
+      <div style={sm.text}>{msg.content}</div>
+      <div style={sm.hint}>Tap to view quest →</div>
+    </div>
+  );
+}
+
+const sm: Record<string, React.CSSProperties> = {
+  wrap: { backgroundColor: '#f9fdf5', border: '1.5px solid rgba(82,115,77,0.3)', borderRadius: '14px', padding: '12px 16px', maxWidth: '320px', cursor: 'pointer', transition: 'filter 0.15s' },
+  tag: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: '#52734D', marginBottom: '6px', paddingBottom: '6px', borderBottom: '1px solid rgba(82,115,77,0.15)' },
+  guildChip: { backgroundColor: 'rgba(82,115,77,0.12)', color: '#52734D', fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '20px', flexShrink: 0 },
+  text: { fontSize: '13px', color: '#333', marginBottom: '5px', lineHeight: '1.4' },
+  hint: { fontSize: '11px', color: '#34C759', fontWeight: 600 },
+};
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function Chat() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
 
-  const [threads, setThreads] = useState<ChatThread[]>([]);
-  const [filteredThreads, setFilteredThreads] = useState<ChatThread[]>([]);
-  const [threadSearch, setThreadSearch] = useState('');
-  const [threadsLoading, setThreadsLoading] = useState(true);
+  // Sidebar state
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [convLoading, setConvLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
 
-  const [activeThread, setActiveThread] = useState<ChatThread | null>(null);
+  // Active conversation
+  const [active, setActive] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [messagesLoading, setMessagesLoading] = useState(false);
-  const [messageInput, setMessageInput] = useState('');
+  const [msgsLoading, setMsgsLoading] = useState(false);
+  const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
 
-  const [stompConnected, setStompConnected] = useState(false);
-  const stompClientRef = useRef<any>(null);
-  const subscriptionRef = useRef<any>(null);
+  // WebSocket
+  const stompRef = useRef<any>(null);
+  const subConvRef = useRef<any>(null);   // /topic/conversation/{id}
+  const subSidebarRef = useRef<any>(null); // /topic/user/{myId}/conversations
+  const [wsReady, setWsReady] = useState(false);
+  const scriptsRef = useRef(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const scriptsLoadedRef = useRef(false);
 
-  // ── Load SockJS + STOMP scripts ───────────────────────────────────────────
+  // ── Load scripts + connect ──────────────────────────────────────────────────
 
   useEffect(() => {
-    if (scriptsLoadedRef.current) return;
-    scriptsLoadedRef.current = true;
-
-    const loadScript = (src: string): Promise<void> => new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    if (scriptsRef.current) return;
+    scriptsRef.current = true;
+    const load = (src: string) => new Promise<void>((res, rej) => {
+      if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
       const s = document.createElement('script');
-      s.src = src; s.onload = () => resolve(); s.onerror = reject;
+      s.src = src; s.onload = () => res(); s.onerror = rej;
       document.head.appendChild(s);
     });
-
     Promise.all([
-      loadScript('https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js'),
-      loadScript('https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js'),
-    ]).then(() => {
-      connectStomp();
-    }).catch(err => console.error('Failed to load WebSocket libs:', err));
-
-    return () => {
-      disconnectStomp();
-    };
+      load('https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js'),
+      load('https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js'),
+    ]).then(connectWS).catch(console.error);
+    return () => disconnect();
   }, []); // eslint-disable-line
 
-  // ── STOMP connect ─────────────────────────────────────────────────────────
-
-  const connectStomp = useCallback(() => {
+  const connectWS = useCallback(() => {
     const token = localStorage.getItem('guildhall_token');
     if (!token || !window.Stomp || !window.SockJS) return;
-
-    const socket = new window.SockJS(`${API_BASE}/ws`);
+    const socket = new window.SockJS(`${WS_BASE}/ws`);
     const client = window.Stomp.over(socket);
-    client.debug = null; // suppress console spam
-
+    client.debug = null;
     client.connect(
       { Authorization: `Bearer ${token}` },
-      () => {
-        stompClientRef.current = client;
-        setStompConnected(true);
-      },
-      (err: any) => {
-        console.error('STOMP error:', err);
-        setStompConnected(false);
-        // Retry after 3s
-        setTimeout(() => {
-          if (window.Stomp && window.SockJS) connectStomp();
-        }, 3000);
-      }
+      () => { stompRef.current = client; setWsReady(true); },
+      () => { setWsReady(false); setTimeout(connectWS, 3000); }
     );
   }, []); // eslint-disable-line
 
-  const disconnectStomp = useCallback(() => {
-    if (subscriptionRef.current) { try { subscriptionRef.current.unsubscribe(); } catch { /**/ } }
-    if (stompClientRef.current?.connected) { try { stompClientRef.current.disconnect(); } catch { /**/ } }
-    stompClientRef.current = null;
-    setStompConnected(false);
+  const disconnect = useCallback(() => {
+    [subConvRef, subSidebarRef].forEach(r => { try { r.current?.unsubscribe(); } catch { } });
+    try { stompRef.current?.disconnect(); } catch { }
+    stompRef.current = null; setWsReady(false);
   }, []);
 
-  // ── Subscribe to quest topic when active thread changes ───────────────────
+  // ── Subscribe to sidebar updates ────────────────────────────────────────────
 
   useEffect(() => {
-    if (subscriptionRef.current) {
-      try { subscriptionRef.current.unsubscribe(); } catch { /**/ }
-      subscriptionRef.current = null;
-    }
-    if (!activeThread || !stompClientRef.current?.connected) return;
+    if (!wsReady || !user?.id) return;
+    try { subSidebarRef.current?.unsubscribe(); } catch { }
+    subSidebarRef.current = stompRef.current.subscribe(
+      `/topic/user/${user.id}/conversations`,
+      (frame: any) => {
+        try {
+          const update: Conversation & { type?: string } = JSON.parse(frame.body);
+          setConversations(prev => {
+            const exists = prev.find(c => c.conversationId === update.conversationId);
+            if (exists) {
+              return [...prev.filter(c => c.conversationId !== update.conversationId), update]
+                .sort((a, b) => (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''));
+            }
+            return [update, ...prev];
+          });
+        } catch { }
+      }
+    );
+  }, [wsReady, user?.id]); // eslint-disable-line
 
-    subscriptionRef.current = stompClientRef.current.subscribe(
-      `/topic/quest/${activeThread.questId}`,
+  // ── Subscribe to active conversation ───────────────────────────────────────
+
+  useEffect(() => {
+    try { subConvRef.current?.unsubscribe(); } catch { }
+    subConvRef.current = null;
+    if (!active || !wsReady) return;
+    subConvRef.current = stompRef.current.subscribe(
+      `/topic/conversation/${active.conversationId}`,
       (frame: any) => {
         try {
           const msg: ChatMessage = JSON.parse(frame.body);
-          setMessages(prev => {
-            if (prev.some(m => m.id === msg.id)) return prev;
-            return [...prev, msg];
-          });
-        } catch { /**/ }
+          setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        } catch { }
       }
     );
-  }, [activeThread, stompConnected]); // eslint-disable-line
+  }, [active?.conversationId, wsReady]); // eslint-disable-line
 
-  // ── Scroll to bottom when messages change ─────────────────────────────────
+  // ── Scroll to bottom ────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // ── Load threads on mount ─────────────────────────────────────────────────
+  // ── Load conversations ──────────────────────────────────────────────────────
 
   useEffect(() => {
-    api.get('/chat/threads')
+    api.get('/chat/conversations')
       .then(res => {
         const data = res.data?.data ?? res.data;
-        const list: ChatThread[] = Array.isArray(data) ? data : [];
-        setThreads(list);
-        setFilteredThreads(list);
+        const list: Conversation[] = Array.isArray(data) ? data : [];
+        setConversations(list);
 
-        // If questId is in URL params, auto-open that thread
-        const questIdParam = searchParams.get('questId');
-        if (questIdParam) {
-          const target = list.find(t => t.questId === Number(questIdParam));
-          if (target) openThread(target);
+        // Auto-open from URL param
+        const convIdParam = searchParams.get('conversationId');
+        if (convIdParam) {
+          const target = list.find(c => c.conversationId === Number(convIdParam));
+          if (target) openConversation(target);
         }
       })
-      .catch(() => setThreads([]))
-      .finally(() => setThreadsLoading(false));
+      .catch(() => setConversations([]))
+      .finally(() => setConvLoading(false));
   }, []); // eslint-disable-line
 
-  // ── Filter threads by search ───────────────────────────────────────────────
+  // ── User search (debounced) ─────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!threadSearch.trim()) {
-      setFilteredThreads(threads);
-    } else {
-      const q = threadSearch.toLowerCase();
-      setFilteredThreads(threads.filter(t =>
-        t.otherUsername?.toLowerCase().includes(q) ||
-        t.questTitle?.toLowerCase().includes(q) ||
-        t.guildName?.toLowerCase().includes(q)
-      ));
-    }
-  }, [threadSearch, threads]);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (!search.trim()) { setSearchResults([]); setShowResults(false); return; }
+    searchTimeoutRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await api.get(`/chat/users/search?q=${encodeURIComponent(search.trim())}`);
+        const data = res.data?.data ?? res.data;
+        setSearchResults(Array.isArray(data) ? data : []);
+        setShowResults(true);
+      } catch { setSearchResults([]); }
+      finally { setSearching(false); }
+    }, 300);
+  }, [search]);
 
-  // ── Open a thread ──────────────────────────────────────────────────────────
-
-  const openThread = useCallback(async (thread: ChatThread) => {
-    setActiveThread(thread);
-    setMessages([]);
-    setMessagesLoading(true);
-    try {
-      const res = await api.get(`/guilds/${thread.guildId}/quests/${thread.questId}/messages`);
-      const data = res.data?.data ?? res.data;
-      setMessages(Array.isArray(data) ? data : []);
-    } catch {
-      setMessages([]);
-    } finally {
-      setMessagesLoading(false);
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
+  // Close search results when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowResults(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // ── Send message ───────────────────────────────────────────────────────────
+  // ── Open conversation ───────────────────────────────────────────────────────
+
+  const openConversation = useCallback(async (conv: Conversation) => {
+    setActive(conv);
+    setMessages([]);
+    setMsgsLoading(true);
+    try {
+      const res = await api.get(`/chat/conversations/${conv.conversationId}/messages`);
+      const data = res.data?.data ?? res.data;
+      setMessages(Array.isArray(data) ? data : []);
+    } catch { setMessages([]); }
+    finally { setMsgsLoading(false); setTimeout(() => inputRef.current?.focus(), 80); }
+  }, []);
+
+  // ── Start conversation with searched user ───────────────────────────────────
+
+  const startConversation = useCallback(async (u: UserSearchResult) => {
+    setShowResults(false);
+    setSearch('');
+    try {
+      const res = await api.post(`/chat/conversations/${u.id}`);
+      const conv: Conversation = res.data?.data ?? res.data;
+      setConversations(prev => {
+        if (prev.find(c => c.conversationId === conv.conversationId)) return prev;
+        return [conv, ...prev];
+      });
+      openConversation(conv);
+    } catch (err: any) {
+      alert(err?.response?.data?.error?.message || 'Failed to open conversation.');
+    }
+  }, [openConversation]);
+
+  // ── Send message ────────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async () => {
-    if (!activeThread || !messageInput.trim() || sending) return;
-    const content = messageInput.trim();
-    setMessageInput('');
+    if (!active || !input.trim() || sending) return;
+    const content = input.trim();
+    setInput('');
     setSending(true);
 
-    if (stompClientRef.current?.connected) {
-      // Send via WebSocket
-      stompClientRef.current.send(
-        `/app/chat/${activeThread.questId}`,
+    if (stompRef.current?.connected) {
+      stompRef.current.send(
+        `/app/chat/${active.conversationId}`,
         { Authorization: `Bearer ${localStorage.getItem('guildhall_token')}` },
-        JSON.stringify({ questId: String(activeThread.questId), content })
+        JSON.stringify({ conversationId: String(active.conversationId), content })
       );
       setSending(false);
     } else {
-      // Fallback to REST
-      try {
-        await api.post(`/guilds/${activeThread.guildId}/quests/${activeThread.questId}/messages`, { content });
-      } catch { /**/ } finally {
-        setSending(false);
-      }
+      try { await api.post(`/chat/conversations/${active.conversationId}/messages`, { content }); }
+      catch { } finally { setSending(false); }
     }
-
-    // Update sidebar last message preview
-    setThreads(prev => prev.map(t =>
-      t.questId === activeThread.questId
-        ? { ...t, lastMessage: content, lastMessageAt: new Date().toISOString() }
-        : t
-    ));
-  }, [activeThread, messageInput, sending]);
+  }, [active, input, sending]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Navigate to quest from system message ───────────────────────────────────
+
+  const goToQuest = useCallback((msg: ChatMessage) => {
+    if (msg.guildId) navigate(`/guilds/${msg.guildId}`);
+  }, [navigate]);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div style={s.page}>
@@ -304,140 +346,143 @@ export default function Chat() {
             <h2 style={s.sidebarTitle}>Chats</h2>
           </div>
 
-          <div style={s.searchWrap}>
-            <svg style={s.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input
-              style={s.searchInput}
-              placeholder="Search chats..."
-              value={threadSearch}
-              onChange={e => setThreadSearch(e.target.value)}
-            />
+          {/* Search bar */}
+          <div style={s.searchOuter} ref={searchRef}>
+            <div style={s.searchWrap}>
+              {searching ? (
+                <span style={s.searchIcon}>⏳</span>
+              ) : (
+                <svg style={s.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              )}
+              <input
+                style={s.searchInput}
+                placeholder="Search users..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onFocus={() => searchResults.length > 0 && setShowResults(true)}
+              />
+              {search && (
+                <button style={s.clearBtn} onClick={() => { setSearch(''); setSearchResults([]); setShowResults(false); }}>✕</button>
+              )}
+            </div>
+
+            {/* Search results dropdown */}
+            {showResults && searchResults.length > 0 && (
+              <div style={s.searchDropdown}>
+                {searchResults.map(u => (
+                  <button key={u.id} style={s.searchResult} onClick={() => startConversation(u)}>
+                    <Avatar username={u.username} pic={u.profilePictureUrl} size={32} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={s.resultName}>{u.username}</div>
+                      <div style={s.resultRank}>{u.rank}</div>
+                    </div>
+                    <span style={s.startChip}>Message</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {showResults && search && !searching && searchResults.length === 0 && (
+              <div style={s.searchDropdown}>
+                <div style={s.noResults}>No users found for "{search}"</div>
+              </div>
+            )}
           </div>
 
-          <div style={s.threadList}>
-            {threadsLoading ? (
-              <div style={s.sidebarEmpty}>Loading chats...</div>
-            ) : filteredThreads.length === 0 ? (
-              <div style={s.sidebarEmpty}>
-                {threadSearch ? 'No matching chats.' : 'No chats yet.\nAccept a quest to start chatting!'}
+          {/* Conversation list */}
+          <div style={s.convList}>
+            {convLoading ? (
+              <div style={s.sideEmpty}>Loading chats...</div>
+            ) : conversations.length === 0 ? (
+              <div style={s.sideEmpty}>
+                No chats yet.{'\n'}Search for a user above to start chatting!
               </div>
-            ) : filteredThreads.map(thread => (
+            ) : conversations.map(conv => (
               <button
-                key={thread.questId}
-                style={{
-                  ...s.threadItem,
-                  ...(activeThread?.questId === thread.questId ? s.threadItemActive : {}),
-                }}
-                onClick={() => openThread(thread)}
+                key={conv.conversationId}
+                style={{ ...s.convItem, ...(active?.conversationId === conv.conversationId ? s.convItemActive : {}) }}
+                onClick={() => openConversation(conv)}
               >
-                <Avatar username={thread.otherUsername} pictureUrl={thread.otherProfilePicture} size={40} />
-                <div style={s.threadInfo}>
-                  <div style={s.threadName}>{thread.otherUsername ?? 'Unknown'}</div>
-                  <div style={s.threadPreview}>
-                    {thread.lastMessage
-                      ? (thread.lastMessage.length > 40 ? thread.lastMessage.slice(0, 40) + '…' : thread.lastMessage)
-                      : <span style={{ fontStyle: 'italic', color: '#aaa' }}>No messages yet</span>
-                    }
+                <Avatar username={conv.otherUsername} pic={conv.otherProfilePicture} size={40} />
+                <div style={s.convInfo}>
+                  <div style={s.convName}>{conv.otherUsername}</div>
+                  <div style={s.convPreview}>
+                    {conv.lastMessage
+                      ? (conv.lastMessageType === 'SYSTEM'
+                          ? <span style={{ color: '#52734D', fontWeight: 600 }}>⚔️ Quest accepted</span>
+                          : conv.lastMessage.length > 36 ? conv.lastMessage.slice(0, 36) + '…' : conv.lastMessage)
+                      : <span style={{ fontStyle: 'italic', color: '#aaa' }}>No messages yet</span>}
                   </div>
                 </div>
-                <div style={s.threadMeta}>
-                  <div style={s.threadTime}>{formatTime(thread.lastMessageAt)}</div>
-                  {thread.unreadCount > 0 && (
-                    <div style={s.unreadBadge}>{thread.unreadCount}</div>
-                  )}
+                <div style={s.convMeta}>
+                  <div style={s.convTime}>{fmtTime(conv.lastMessageAt)}</div>
+                  {conv.unreadCount > 0 && <div style={s.unread}>{conv.unreadCount}</div>}
                 </div>
               </button>
             ))}
           </div>
         </aside>
 
-        {/* ── Main chat area ── */}
-        <main style={s.chatArea}>
-          {!activeThread ? (
-            <div style={s.emptyState}>
-              <div style={s.emptyIcon}>
-                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#DDFFBC" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        {/* ── Chat main ── */}
+        <main style={s.chatMain}>
+          {!active ? (
+            <div style={s.empty}>
+              <div style={s.emptyCircle}>
+                <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#DDFFBC" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                 </svg>
               </div>
-              <div style={s.emptyTitle}>Select a chat</div>
-              <div style={s.emptySubtitle}>Choose a quest conversation from the sidebar to start chatting.</div>
+              <div style={s.emptyTitle}>Select a conversation</div>
+              <div style={s.emptySub}>Search for a user or pick a chat from the sidebar.</div>
             </div>
           ) : (
             <>
-              {/* Chat header */}
-              <div style={s.chatHeader}>
-                <Avatar
-                  username={activeThread.otherUsername}
-                  pictureUrl={activeThread.otherProfilePicture}
-                  size={38}
-                />
-                <div style={s.chatHeaderInfo}>
-                  <div style={s.chatHeaderName}>{activeThread.otherUsername}</div>
-                  <div style={s.chatHeaderSub}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                    </svg>
-                    {activeThread.questTitle}
-                    <span style={s.guildDot}>·</span>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                      <polyline points="9 22 9 12 15 12 15 22"/>
-                    </svg>
-                    {activeThread.guildName}
-                  </div>
+              {/* Header */}
+              <div style={s.header}>
+                <Avatar username={active.otherUsername} pic={active.otherProfilePicture} size={38} />
+                <div style={s.headerInfo}>
+                  <div style={s.headerName}>{active.otherUsername}</div>
                 </div>
-                <button
-                  style={s.viewQuestBtn}
-                  onClick={() => navigate(`/guilds/${activeThread.guildId}`)}
-                  title="Go to guild"
-                >
+                <button style={s.profileBtn} onClick={async () => {
+                  // Navigate to guild if there's a shared quest, else just show username
+                  const lastSystem = [...messages].reverse().find(m => m.messageType === 'SYSTEM');
+                  if (lastSystem?.guildId) navigate(`/guilds/${lastSystem.guildId}`);
+                }} title="View shared guild">
                   View Guild →
                 </button>
               </div>
 
               {/* Messages */}
               <div style={s.messages}>
-                {messagesLoading ? (
-                  <div style={s.loadingMsg}>Loading messages...</div>
+                {msgsLoading ? (
+                  <div style={s.loadingTxt}>Loading messages...</div>
                 ) : messages.length === 0 ? (
-                  <div style={s.noMessages}>
-                    <div style={{ fontSize: '32px', marginBottom: '8px', opacity: 0.4 }}>⚔️</div>
-                    <div style={{ fontSize: '14px', color: '#888' }}>No messages yet. Say hello!</div>
+                  <div style={s.noMsg}>
+                    <div style={{ fontSize: '32px', marginBottom: '8px', opacity: 0.35 }}>👋</div>
+                    <div style={{ fontSize: '14px', color: '#888' }}>Say hello to {active.otherUsername}!</div>
                   </div>
                 ) : (
                   messages.map((msg, idx) => {
                     const isMine = msg.senderId === user?.id;
-                    const prevMsg = idx > 0 ? messages[idx - 1] : null;
-                    const showTimestamp = !prevMsg ||
-                      (prevMsg && new Date(msg.sentAt ?? '').getTime() - new Date(prevMsg.sentAt ?? '').getTime() > 5 * 60 * 1000);
+                    const prev = idx > 0 ? messages[idx - 1] : null;
+                    const showTs = !prev ||
+                      new Date(msg.sentAt ?? '').getTime() - new Date(prev.sentAt ?? '').getTime() > 300_000;
+                    const groupWithPrev = prev && prev.senderId === msg.senderId && !showTs;
 
                     return (
                       <React.Fragment key={msg.id}>
-                        {showTimestamp && msg.sentAt && (
-                          <div style={s.timestamp}>{formatTime(msg.sentAt)}</div>
-                        )}
-                        <div style={{ ...s.messageRow, ...(isMine ? s.messageRowMine : {}) }}>
+                        {showTs && <div style={s.ts}>{fmtFull(msg.sentAt)}</div>}
+                        <div style={{ ...s.msgRow, ...(isMine ? s.msgRowMine : {}), marginTop: groupWithPrev ? '2px' : '8px' }}>
                           {!isMine && (
-                            <Avatar username={msg.senderUsername} pictureUrl={msg.senderProfilePicture} size={28} />
+                            <div style={{ width: 28, flexShrink: 0 }}>
+                              {!groupWithPrev && <Avatar username={msg.senderUsername} pic={msg.senderProfilePicture} size={28} />}
+                            </div>
                           )}
-                          <div style={{ maxWidth: '70%' }}>
-                            {/* System message style */}
-                            {msg.content.includes('accepted your quest') ? (
-                              <div style={s.systemBubble}>
-                                <div style={s.questTag}>
-                                  <svg width="13" height="13" viewBox="0 0 40 40" fill="none">
-                                    <rect x="4" y="2" width="22" height="32" rx="3" fill="#52734D"/>
-                                    <rect x="18" y="0" width="14" height="18" rx="2" fill="#34C759"/>
-                                    <polygon points="18,18 25,14 32,18" fill="#52734D"/>
-                                  </svg>
-                                  {activeThread.questTitle}
-                                </div>
-                                <div style={s.systemText}>{msg.content}</div>
-                              </div>
+                          <div style={{ maxWidth: '72%' }}>
+                            {msg.messageType === 'SYSTEM' ? (
+                              <SystemBubble msg={msg} onClick={() => goToQuest(msg)} />
                             ) : (
                               <div style={{ ...s.bubble, ...(isMine ? s.bubbleMine : s.bubbleOther) }}>
                                 {msg.content}
@@ -445,7 +490,9 @@ export default function Chat() {
                             )}
                           </div>
                           {isMine && (
-                            <Avatar username={msg.senderUsername} pictureUrl={msg.senderProfilePicture} size={28} />
+                            <div style={{ width: 28, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                              {!groupWithPrev && <Avatar username={msg.senderUsername} pic={msg.senderProfilePicture} size={28} />}
+                            </div>
                           )}
                         </div>
                       </React.Fragment>
@@ -455,28 +502,24 @@ export default function Chat() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Input bar */}
+              {/* Input */}
               <div style={s.inputBar}>
                 <input
                   ref={inputRef}
                   style={s.textInput}
-                  placeholder={`Message ${activeThread.otherUsername ?? 'them'}...`}
-                  value={messageInput}
-                  onChange={e => setMessageInput(e.target.value)}
+                  placeholder={`Message ${active.otherUsername}...`}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   disabled={sending}
                   maxLength={1000}
                 />
                 <button
-                  style={{
-                    ...s.sendBtn,
-                    opacity: (!messageInput.trim() || sending) ? 0.5 : 1,
-                  }}
+                  style={{ ...s.sendBtn, opacity: (!input.trim() || sending) ? 0.45 : 1 }}
                   onClick={handleSend}
-                  disabled={!messageInput.trim() || sending}
-                  title="Send"
+                  disabled={!input.trim() || sending}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"/>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                   </svg>
@@ -490,340 +533,62 @@ export default function Chat() {
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    backgroundColor: '#f5f5f5',
-    fontFamily: "'Prompt', sans-serif",
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  layout: {
-    display: 'flex',
-    flex: 1,
-    overflow: 'hidden',
-    height: 'calc(100vh - 56px)',
-  },
+  page: { minHeight: '100vh', backgroundColor: '#f5f5f5', fontFamily: "'Prompt', sans-serif", display: 'flex', flexDirection: 'column' },
+  layout: { display: 'flex', flex: 1, height: 'calc(100vh - 56px)', overflow: 'hidden' },
 
-  // Sidebar
-  sidebar: {
-    width: '280px',
-    minWidth: '280px',
-    backgroundColor: '#DDFFBC',
-    borderRight: '1px solid rgba(82,115,77,0.2)',
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-  },
-  sidebarHeader: {
-    padding: '20px 20px 8px',
-  },
-  sidebarTitle: {
-    color: '#34C759',
-    fontWeight: 700,
-    fontSize: '24px',
-    margin: 0,
-  },
-  searchWrap: {
-    position: 'relative',
-    margin: '8px 16px 8px',
-  },
-  searchIcon: {
-    position: 'absolute',
-    left: '10px',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    pointerEvents: 'none',
-  },
-  searchInput: {
-    width: '100%',
-    padding: '8px 12px 8px 30px',
-    border: '1.5px solid rgba(82,115,77,0.25)',
-    borderRadius: '20px',
-    fontFamily: "'Prompt', sans-serif",
-    fontSize: '13px',
-    backgroundColor: '#fff',
-    outline: 'none',
-    boxSizing: 'border-box',
-  },
-  threadList: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '4px 0',
-  },
-  sidebarEmpty: {
-    padding: '32px 20px',
-    textAlign: 'center',
-    color: '#888',
-    fontSize: '13px',
-    lineHeight: '1.6',
-    whiteSpace: 'pre-line',
-  },
-  threadItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '12px 16px',
-    background: 'none',
-    border: 'none',
-    borderBottom: '1px solid rgba(82,115,77,0.1)',
-    cursor: 'pointer',
-    textAlign: 'left',
-    width: '100%',
-    transition: 'background 0.1s',
-  },
-  threadItemActive: {
-    backgroundColor: 'rgba(52,199,89,0.15)',
-    borderLeft: '3px solid #34C759',
-    paddingLeft: '13px',
-  },
-  threadInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  threadName: {
-    fontWeight: 700,
-    fontSize: '14px',
-    color: '#222',
-    marginBottom: '2px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  threadPreview: {
-    fontSize: '12px',
-    color: '#666',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  threadMeta: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: '4px',
-    flexShrink: 0,
-  },
-  threadTime: {
-    fontSize: '11px',
-    color: '#aaa',
-  },
-  unreadBadge: {
-    backgroundColor: '#34C759',
-    color: '#fff',
-    fontSize: '10px',
-    fontWeight: 700,
-    padding: '1px 6px',
-    borderRadius: '20px',
-    minWidth: '18px',
-    textAlign: 'center',
-  },
+  sidebar: { width: '280px', minWidth: '280px', backgroundColor: '#DDFFBC', borderRight: '1px solid rgba(82,115,77,0.2)', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  sidebarHeader: { padding: '18px 18px 6px' },
+  sidebarTitle: { color: '#34C759', fontWeight: 700, fontSize: '22px', margin: 0 },
 
-  // Chat area
-  chatArea: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-  },
-  emptyState: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px',
-    padding: '48px',
-  },
-  emptyIcon: {
-    width: '80px',
-    height: '80px',
-    borderRadius: '50%',
-    backgroundColor: '#52734D',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: '8px',
-  },
-  emptyTitle: {
-    fontWeight: 700,
-    fontSize: '20px',
-    color: '#333',
-  },
-  emptySubtitle: {
-    fontSize: '14px',
-    color: '#888',
-    textAlign: 'center',
-    maxWidth: '260px',
-    lineHeight: '1.5',
-  },
+  searchOuter: { position: 'relative', margin: '6px 14px 4px' },
+  searchWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
+  searchIcon: { position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '12px' },
+  searchInput: { width: '100%', padding: '8px 30px 8px 30px', border: '1.5px solid rgba(82,115,77,0.3)', borderRadius: '20px', fontFamily: "'Prompt', sans-serif", fontSize: '13px', backgroundColor: '#fff', outline: 'none', boxSizing: 'border-box' },
+  clearBtn: { position: 'absolute', right: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: '12px', padding: '2px 4px', display: 'flex', alignItems: 'center' },
 
-  // Chat header
-  chatHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '14px 20px',
-    borderBottom: '1px solid #f0f0f0',
-    backgroundColor: '#fff',
-    flexShrink: 0,
-  },
-  chatHeaderInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  chatHeaderName: {
-    fontWeight: 700,
-    fontSize: '15px',
-    color: '#222',
-    marginBottom: '2px',
-  },
-  chatHeaderSub: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '5px',
-    fontSize: '12px',
-    color: '#888',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  guildDot: {
-    color: '#ccc',
-  },
-  viewQuestBtn: {
-    background: 'none',
-    border: '1.5px solid #52734D',
-    borderRadius: '20px',
-    padding: '5px 14px',
-    fontFamily: "'Prompt', sans-serif",
-    fontWeight: 600,
-    fontSize: '12px',
-    color: '#52734D',
-    cursor: 'pointer',
-    flexShrink: 0,
-    whiteSpace: 'nowrap',
-  },
+  searchDropdown: { position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, backgroundColor: '#fff', border: '1.5px solid rgba(82,115,77,0.2)', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 200, overflow: 'hidden', maxHeight: '280px', overflowY: 'auto' },
+  searchResult: { display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', textAlign: 'left', fontFamily: "'Prompt', sans-serif' " },
+  resultName: { fontWeight: 700, fontSize: '13px', color: '#222' },
+  resultRank: { fontSize: '11px', color: '#888' },
+  startChip: { backgroundColor: '#34C759', color: '#fff', fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', flexShrink: 0 },
+  noResults: { padding: '14px 16px', fontSize: '13px', color: '#aaa', textAlign: 'center' },
 
-  // Messages
-  messages: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '16px 20px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  loadingMsg: {
-    textAlign: 'center',
-    color: '#888',
-    fontSize: '14px',
-    marginTop: '32px',
-  },
-  noMessages: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    marginTop: '60px',
-  },
-  timestamp: {
-    textAlign: 'center',
-    fontSize: '11px',
-    color: '#bbb',
-    margin: '12px 0 4px',
-    fontWeight: 500,
-  },
-  messageRow: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    gap: '8px',
-    marginBottom: '2px',
-  },
-  messageRowMine: {
-    flexDirection: 'row-reverse',
-  },
-  bubble: {
-    padding: '10px 14px',
-    borderRadius: '18px',
-    fontSize: '14px',
-    lineHeight: '1.5',
-    maxWidth: '100%',
-    wordBreak: 'break-word',
-  },
-  bubbleMine: {
-    backgroundColor: '#34C759',
-    color: '#fff',
-    borderBottomRightRadius: '4px',
-  },
-  bubbleOther: {
-    backgroundColor: '#DDFFBC',
-    color: '#222',
-    borderBottomLeftRadius: '4px',
-  },
-  systemBubble: {
-    backgroundColor: '#f9fdf5',
-    border: '1px solid rgba(82,115,77,0.25)',
-    borderRadius: '14px',
-    padding: '12px 16px',
-    maxWidth: '340px',
-  },
-  questTag: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '12px',
-    fontWeight: 700,
-    color: '#52734D',
-    marginBottom: '6px',
-    paddingBottom: '6px',
-    borderBottom: '1px solid rgba(82,115,77,0.15)',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  systemText: {
-    fontSize: '13px',
-    color: '#555',
-    lineHeight: '1.5',
-  },
+  convList: { flex: 1, overflowY: 'auto' },
+  sideEmpty: { padding: '28px 18px', textAlign: 'center', color: '#888', fontSize: '13px', lineHeight: '1.7', whiteSpace: 'pre-line' },
+  convItem: { display: 'flex', alignItems: 'center', gap: '11px', padding: '11px 16px', background: 'none', border: 'none', borderBottom: '1px solid rgba(82,115,77,0.1)', cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: "'Prompt', sans-serif", transition: 'background 0.1s' },
+  convItemActive: { backgroundColor: 'rgba(52,199,89,0.15)', borderLeft: '3px solid #34C759', paddingLeft: '13px' },
+  convInfo: { flex: 1, minWidth: 0 },
+  convName: { fontWeight: 700, fontSize: '13px', color: '#222', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  convPreview: { fontSize: '12px', color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  convMeta: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px', flexShrink: 0 },
+  convTime: { fontSize: '10px', color: '#aaa' },
+  unread: { backgroundColor: '#34C759', color: '#fff', fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '20px', minWidth: '17px', textAlign: 'center' },
 
-  // Input bar
-  inputBar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '12px 20px 16px',
-    borderTop: '1px solid #f0f0f0',
-    backgroundColor: '#fff',
-    flexShrink: 0,
-  },
-  textInput: {
-    flex: 1,
-    padding: '10px 16px',
-    border: '1.5px solid #e0e0e0',
-    borderRadius: '24px',
-    fontFamily: "'Prompt', sans-serif",
-    fontSize: '14px',
-    outline: 'none',
-    backgroundColor: '#fafafa',
-    transition: 'border-color 0.15s',
-  },
-  sendBtn: {
-    width: '42px',
-    height: '42px',
-    borderRadius: '50%',
-    backgroundColor: '#34C759',
-    border: 'none',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    transition: 'opacity 0.15s, filter 0.15s',
-  },
+  chatMain: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: '#fff' },
+  empty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px' },
+  emptyCircle: { width: '84px', height: '84px', borderRadius: '50%', backgroundColor: '#52734D', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px' },
+  emptyTitle: { fontWeight: 700, fontSize: '18px', color: '#333' },
+  emptySub: { fontSize: '14px', color: '#888', textAlign: 'center', maxWidth: '240px', lineHeight: '1.5' },
+
+  header: { display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 20px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 },
+  headerInfo: { flex: 1 },
+  headerName: { fontWeight: 700, fontSize: '15px', color: '#222' },
+  profileBtn: { background: 'none', border: '1.5px solid #52734D', borderRadius: '20px', padding: '5px 14px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '12px', color: '#52734D', cursor: 'pointer', flexShrink: 0 },
+
+  messages: { flex: 1, overflowY: 'auto', padding: '12px 20px 8px', display: 'flex', flexDirection: 'column' },
+  loadingTxt: { textAlign: 'center', color: '#aaa', fontSize: '14px', marginTop: '40px' },
+  noMsg: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, marginTop: '60px' },
+  ts: { textAlign: 'center', fontSize: '11px', color: '#ccc', margin: '10px 0 2px', fontWeight: 500 },
+  msgRow: { display: 'flex', alignItems: 'flex-end', gap: '7px' },
+  msgRowMine: { flexDirection: 'row-reverse' },
+  bubble: { padding: '9px 14px', borderRadius: '18px', fontSize: '14px', lineHeight: '1.5', maxWidth: '100%', wordBreak: 'break-word' },
+  bubbleMine: { backgroundColor: '#34C759', color: '#fff', borderBottomRightRadius: '4px' },
+  bubbleOther: { backgroundColor: '#DDFFBC', color: '#222', borderBottomLeftRadius: '4px' },
+
+  inputBar: { display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 20px 16px', borderTop: '1px solid #f0f0f0', flexShrink: 0 },
+  textInput: { flex: 1, padding: '10px 16px', border: '1.5px solid #e0e0e0', borderRadius: '24px', fontFamily: "'Prompt', sans-serif", fontSize: '14px', outline: 'none', backgroundColor: '#fafafa' },
+  sendBtn: { width: '42px', height: '42px', borderRadius: '50%', backgroundColor: '#34C759', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'opacity 0.15s' },
 };
