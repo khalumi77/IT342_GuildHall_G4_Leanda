@@ -14,6 +14,7 @@ import GuildDashboard from './pages/GuildDashboard';
 import CommissionedQuests from './pages/CommissionedQuests';
 import AcceptedQuests from './pages/AcceptedQuests';
 import GoogleCallback from './pages/GoogleCallback';
+import Chat from './pages/Chat';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/admin/users/:userId" element={<AdminRoute><UserProfileView /></AdminRoute>} />
           <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />
           <Route path="*"          element={<Navigate to="/login" replace />} />
+          <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

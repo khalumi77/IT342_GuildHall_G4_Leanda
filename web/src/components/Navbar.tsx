@@ -42,7 +42,7 @@ export default function Navbar() {
       </button>
 
       <div style={styles.rightIcons}>
-        <button style={styles.iconBtn} title="Chat (coming soon)" disabled>
+        <button style={styles.iconBtn} onClick={() => navigate('/chat')} title="Chats">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
@@ -122,7 +122,7 @@ const styles: Record<string, React.CSSProperties> = {
   logoText: { color: '#fff', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '20px', letterSpacing: '-0.3px' },
   adminBadge: { backgroundColor: '#DDFFBC', color: '#52734D', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', letterSpacing: '0.5px' },
   rightIcons: { display: 'flex', alignItems: 'center', gap: '4px' },
-  iconBtn: { background: 'none', border: 'none', cursor: 'not-allowed', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', opacity: 0.5 },
+  iconBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', opacity: 1 },
   profileBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: '6px', borderRadius: '8px', display: 'flex', alignItems: 'center', transition: 'background 0.15s' },
   navAvatar: { width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' as const, border: '2px solid #DDFFBC' },
 
