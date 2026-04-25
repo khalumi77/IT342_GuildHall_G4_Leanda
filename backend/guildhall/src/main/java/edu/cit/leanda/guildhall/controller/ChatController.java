@@ -203,6 +203,37 @@ public class ChatController {
         return ResponseEntity.ok(responseWrapper.ok(outgoing));
     }
 
+    /**
+     * Called from QuestController after a PENDING quest is edited.
+     * Sends a SYSTEM message to the helper notifying them that the quest details changed.
+     */
+    public Map<String, Object> sendQuestUpdatedNotification(
+            User poster,
+            User helper,
+            Long questId,
+            Long guildId,
+            String questTitle,
+            String guildName) {
+ 
+        Conversation conv = getOrCreate(poster, helper);
+        String content = poster.getUsername() + " updated the quest details";
+ 
+        DirectMessage msg = DirectMessage.builder()
+                .conversation(conv).sender(poster).content(content)
+                .messageType(DirectMessage.MessageType.SYSTEM)
+                .questId(questId).guildId(guildId)
+                .questTitle(questTitle).guildName(guildName)
+                .isRead(false).sentAt(java.time.LocalDateTime.now())
+                .build();
+        msg = directMessageRepository.save(msg);
+ 
+        Map<String, Object> outgoing = buildMessageMap(msg);
+        messagingTemplate.convertAndSend("/topic/conversation/" + conv.getId(), outgoing);
+        broadcastSidebarUpdate(conv, helper, poster);
+        broadcastSidebarUpdate(conv, poster, helper);
+        return outgoing;
+    }
+
     // ── GET: user search ──────────────────────────────────────────────────────
 
     @GetMapping("/users/search")

@@ -321,6 +321,98 @@ public class QuestController {
         return ResponseEntity.ok(responseWrapper.ok(quests));
     }
 
+    // ── PUT edit quest ─────────────────────────────────────────────────────────
+ 
+    /**
+     * Edit an existing quest. Only the original poster can edit.
+     * OPEN and PENDING quests can be edited.
+     * If the quest is PENDING (already accepted), an automated system message
+     * is sent to the helper notifying them of the update.
+     */
+    @PutMapping("/api/v1/guilds/{guildId}/quests/{questId}")
+    public ResponseEntity<?> editQuest(
+            @PathVariable Long guildId,
+            @PathVariable Long questId,
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserDetails userDetails) {
+ 
+        User me = getUser(userDetails);
+ 
+        Quest quest = questRepository.findById(questId)
+                .orElseThrow(() -> new IllegalArgumentException("Quest not found"));
+ 
+        if (!quest.getGuild().getId().equals(guildId)) return forbidden();
+ 
+        if (!quest.getPoster().getId().equals(me.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(responseWrapper.error("You can only edit your own quests"));
+        }
+ 
+        if (quest.getStatus() != QuestStatus.OPEN && quest.getStatus() != QuestStatus.PENDING) {
+            return ResponseEntity.badRequest()
+                    .body(responseWrapper.error("Only open or pending quests can be edited"));
+        }
+ 
+        boolean wasPending = quest.getStatus() == QuestStatus.PENDING;
+        User helper = wasPending ? quest.getHelper() : null;
+ 
+        String title = (String) body.get("title");
+        if (title != null && !title.isBlank()) quest.setTitle(title.trim());
+ 
+        String category = (String) body.get("category");
+        if (category != null && !category.isBlank()) quest.setCategory(category);
+ 
+        String description = (String) body.get("description");
+        if (description != null) quest.setDescription(description.trim());
+ 
+        String questTypeStr = (String) body.get("questType");
+        if (questTypeStr != null) {
+            try {
+                QuestType questType = QuestType.valueOf(questTypeStr.toUpperCase());
+                quest.setQuestType(questType);
+                if (questType == QuestType.VOLUNTEER) {
+                    quest.setReward(null);
+                }
+            } catch (Exception ignored) {}
+        }
+ 
+        if (quest.getQuestType() == QuestType.PAID) {
+            Object r = body.get("reward");
+            if (r != null) {
+                try { quest.setReward(new java.math.BigDecimal(r.toString())); }
+                catch (NumberFormatException ignored) {}
+            }
+        }
+ 
+        // Attachment — only update if key is explicitly present in request body
+        if (body.containsKey("attachmentName")) {
+            quest.setAttachmentName((String) body.get("attachmentName"));
+        }
+        if (body.containsKey("attachmentPath")) {
+            quest.setAttachmentPath((String) body.get("attachmentPath"));
+        }
+ 
+        quest = questRepository.save(quest);
+ 
+        // If quest was PENDING, notify the helper via automated chat message
+        if (wasPending && helper != null) {
+            try {
+                chatController.sendQuestUpdatedNotification(
+                        me,
+                        helper,
+                        quest.getId(),
+                        quest.getGuild().getId(),
+                        quest.getTitle(),
+                        quest.getGuild().getName()
+                );
+            } catch (Exception ignored) {
+                // Don't fail the edit if the notification fails
+            }
+        }
+ 
+        return ResponseEntity.ok(responseWrapper.ok(toMap(quest, me)));
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private Map<String, Object> toMap(Quest q, User viewer) {

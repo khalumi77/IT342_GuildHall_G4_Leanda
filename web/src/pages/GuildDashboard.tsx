@@ -117,6 +117,16 @@ const ap: Record<string, React.CSSProperties> = {
   nowBtn: { background: 'none', border: '1.5px solid #ddd', borderRadius: '12px', padding: '11px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px', color: '#666', cursor: 'pointer' },
 };
 
+// ── Quest Form State ──────────────────────────────────────────────────────────
+
+interface QuestFormState {
+  title: string;
+  category: string;
+  description: string;
+  questType: 'VOLUNTEER' | 'PAID';
+  reward: string;
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function GuildDashboard() {
@@ -135,13 +145,25 @@ export default function GuildDashboard() {
 
   // Commission form
   const [showCommissionForm, setShowCommissionForm] = useState(false);
-  const [form, setForm] = useState({ title: '', category: '', description: '', questType: 'VOLUNTEER' as 'VOLUNTEER' | 'PAID', reward: '' });
+  const [form, setForm] = useState<QuestFormState>({ title: '', category: '', description: '', questType: 'VOLUNTEER', reward: '' });
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
   const [compressingImage, setCompressingImage] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Edit form
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editingQuest, setEditingQuest] = useState<Quest | null>(null);
+  const [editForm, setEditForm] = useState<QuestFormState>({ title: '', category: '', description: '', questType: 'VOLUNTEER', reward: '' });
+  const [editAttachmentFile, setEditAttachmentFile] = useState<File | null>(null);
+  const [editAttachmentPreview, setEditAttachmentPreview] = useState<string | null>(null);
+  const [editCompressing, setEditCompressing] = useState(false);
+  const [editFormError, setEditFormError] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editAttachmentCleared, setEditAttachmentCleared] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // Quest detail modal
   const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
@@ -181,6 +203,25 @@ export default function GuildDashboard() {
       .finally(() => setQuoteLoading(false));
   }, []); // eslint-disable-line
 
+  // ── Open edit form ────────────────────────────────────────────────────────
+
+  const openEditForm = (quest: Quest) => {
+    setEditingQuest(quest);
+    setEditForm({
+      title: quest.title,
+      category: quest.category,
+      description: quest.description,
+      questType: quest.questType,
+      reward: quest.reward != null ? String(quest.reward) : '',
+    });
+    setEditAttachmentFile(null);
+    setEditAttachmentPreview(quest.attachmentData ?? null);
+    setEditAttachmentCleared(false);
+    setEditFormError('');
+    setShowEditForm(true);
+    setSelectedQuest(null);
+  };
+
   // ── Accept quest ──────────────────────────────────────────────────────────
 
   const handleAcceptQuest = async (questId: number) => {
@@ -207,10 +248,8 @@ export default function GuildDashboard() {
     try {
       const res = await api.post(`/guilds/${guildId}/quests/${questId}/complete`);
       const updated: Quest = res.data?.data ?? res.data;
-      // Remove from board — completed quests are hidden from guild dashboard
       setQuests(prev => prev.filter(q => q.id !== questId));
       setSelectedQuest(null);
-      // Show a brief success toast via alert for now
       alert(`✓ Quest marked as completed! ${updated.helperUsername ?? 'The helper'} has been credited.`);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
@@ -234,23 +273,30 @@ export default function GuildDashboard() {
     }
   };
 
-  // ── Commission form ───────────────────────────────────────────────────────
+  // ── File change handler (shared for create + edit) ────────────────────────
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, mode: 'create' | 'edit') => {
     const file = e.target.files?.[0];
     if (!file) return;
     const isPDF = file.type === 'application/pdf';
+    const setFile = mode === 'create' ? setAttachmentFile : setEditAttachmentFile;
+    const setPreview = mode === 'create' ? setAttachmentPreview : setEditAttachmentPreview;
+    const setCompressing = mode === 'create' ? setCompressingImage : setEditCompressing;
+    const setError = mode === 'create' ? setFormError : setEditFormError;
+
     if (isPDF) {
-      if (file.size > 500 * 1024) { setFormError('PDF must be under 500 KB.'); return; }
-      setAttachmentFile(file);
+      if (file.size > 500 * 1024) { setError('PDF must be under 500 KB.'); return; }
+      setFile(file);
+      if (mode === 'edit') setEditAttachmentCleared(false);
       const reader = new FileReader();
-      reader.onload = () => setAttachmentPreview(reader.result as string);
+      reader.onload = () => setPreview(reader.result as string);
       reader.readAsDataURL(file);
       return;
     }
-    if (file.size > 10 * 1024 * 1024) { setFormError('Image must be under 10 MB.'); return; }
-    setAttachmentFile(file);
-    setCompressingImage(true);
+    if (file.size > 10 * 1024 * 1024) { setError('Image must be under 10 MB.'); return; }
+    setFile(file);
+    if (mode === 'edit') setEditAttachmentCleared(false);
+    setCompressing(true);
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
@@ -264,21 +310,27 @@ export default function GuildDashboard() {
       const canvas = document.createElement('canvas');
       canvas.width = width; canvas.height = height;
       canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      setAttachmentPreview(canvas.toDataURL('image/jpeg', 0.7));
-      setCompressingImage(false);
+      setPreview(canvas.toDataURL('image/jpeg', 0.7));
+      setCompressing(false);
     };
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
       const reader = new FileReader();
-      reader.onload = () => { setAttachmentPreview(reader.result as string); setCompressingImage(false); };
+      reader.onload = () => { setPreview(reader.result as string); setCompressing(false); };
       reader.readAsDataURL(file);
     };
     img.src = objectUrl;
   };
 
-  const removeAttachment = () => {
-    setAttachmentFile(null); setAttachmentPreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const removeAttachment = (mode: 'create' | 'edit') => {
+    if (mode === 'create') {
+      setAttachmentFile(null); setAttachmentPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } else {
+      setEditAttachmentFile(null); setEditAttachmentPreview(null);
+      setEditAttachmentCleared(true);
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+    }
   };
 
   const resetForm = () => {
@@ -286,6 +338,8 @@ export default function GuildDashboard() {
     setAttachmentFile(null); setAttachmentPreview(null); setFormError('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  // ── Create quest ──────────────────────────────────────────────────────────
 
   const handleSubmitQuest = async () => {
     setFormError('');
@@ -326,7 +380,69 @@ export default function GuildDashboard() {
     } finally { setSubmitting(false); }
   };
 
-  // ── Filter — COMPLETED quests are hidden from board ───────────────────────
+  // ── Edit quest submit ─────────────────────────────────────────────────────
+
+  const handleSubmitEdit = async () => {
+    if (!editingQuest) return;
+    setEditFormError('');
+    if (!editForm.title.trim()) { setEditFormError('Quest title is required.'); return; }
+    if (!editForm.category) { setEditFormError('Please select a category.'); return; }
+    if (!editForm.description.trim()) { setEditFormError('Description is required.'); return; }
+    if (editForm.questType === 'PAID' && (!editForm.reward || isNaN(Number(editForm.reward)) || Number(editForm.reward) <= 0)) {
+      setEditFormError('Please enter a valid payment amount.'); return;
+    }
+    setEditSubmitting(true);
+    try {
+      let attachmentUrl: string | null = null;
+      let attachmentFileName: string | null = null;
+
+      if (editAttachmentFile) {
+        setEditCompressing(true);
+        const ext = editAttachmentFile.name.split('.').pop();
+        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const filePath = `guild-${guildId}/${uniqueName}`;
+        const { error: uploadError } = await supabase.storage.from('quest-attachments').upload(filePath, editAttachmentFile, { upsert: false });
+        setEditCompressing(false);
+        if (uploadError) { setEditFormError(`File upload failed: ${uploadError.message}`); setEditSubmitting(false); return; }
+        const { data: urlData } = supabase.storage.from('quest-attachments').getPublicUrl(filePath);
+        attachmentUrl = urlData.publicUrl;
+        attachmentFileName = editAttachmentFile.name;
+      } else if (editAttachmentCleared) {
+        attachmentUrl = null;
+        attachmentFileName = null;
+      } else {
+        attachmentUrl = editingQuest.attachmentData ?? null;
+        attachmentFileName = editingQuest.attachmentName ?? null;
+      }
+
+      const payload: Record<string, unknown> = {
+        title: editForm.title.trim(),
+        category: editForm.category,
+        description: editForm.description.trim(),
+        questType: editForm.questType,
+        reward: editForm.questType === 'PAID' ? Number(editForm.reward) : null,
+        attachmentName: attachmentFileName,
+        attachmentPath: attachmentUrl,
+      };
+
+      const res = await api.put(`/guilds/${guildId}/quests/${editingQuest.id}`, payload);
+      const updated: Quest = res.data?.data ?? res.data;
+
+      setQuests(prev => prev.map(q => q.id === editingQuest.id
+        ? { ...q, ...updated, attachmentData: attachmentUrl ?? null, attachmentName: attachmentFileName ?? null }
+        : q
+      ));
+      setShowEditForm(false);
+      setEditingQuest(null);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      setEditFormError(e?.response?.data?.error?.message || 'Failed to update quest.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  // ── Filter ────────────────────────────────────────────────────────────────
 
   const visibleQuests = quests.filter(q => q.status !== 'COMPLETED' && q.status !== 'CANCELLED');
 
@@ -348,6 +464,10 @@ export default function GuildDashboard() {
     </div>
   );
 
+  // Edit attachment display helpers
+  const editAttachDisplayName = editAttachmentFile?.name ?? (editAttachmentPreview ? 'Existing attachment' : null);
+  const editAttachIsImage = editAttachDisplayName ? /\.(jpg|jpeg|png|gif|webp)$/i.test(editAttachDisplayName) : false;
+
   return (
     <div style={s.page}>
       <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
@@ -359,7 +479,6 @@ export default function GuildDashboard() {
           quest={acceptedQuest}
           onOpenChat={() => {
             setAcceptedQuest(null);
-            // Send the auto-acceptance message via REST, then navigate
             api.post(`/guilds/${guildId}/quests/${acceptedQuest.id}/messages`, {
               content: `${user?.username} accepted your quest`
             }).catch(() => {});
@@ -369,7 +488,7 @@ export default function GuildDashboard() {
         />
       )}
 
-      {/* Quest detail modal — shared component, no showGuildLink since we're already here */}
+      {/* Quest detail modal */}
       {selectedQuest && (
         <QuestDetailModal
           quest={selectedQuest}
@@ -418,7 +537,6 @@ export default function GuildDashboard() {
                 + Commission Quest
               </button>
             </div>
-
             <div style={s.filterRow}>
               <div style={s.searchWrap}>
                 <svg style={s.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -456,6 +574,7 @@ export default function GuildDashboard() {
                   onDelete={() => handleDeleteQuest(quest.id)}
                   onAccept={() => handleAcceptQuest(quest.id)}
                   onComplete={() => handleCompleteQuest(quest.id)}
+                  onEdit={() => openEditForm(quest)}
                   accepting={accepting === quest.id}
                   completing={completing === quest.id}
                 />
@@ -484,110 +603,215 @@ export default function GuildDashboard() {
         </div>
       </main>
 
-      {/* Commission Quest Modal */}
+      {/* ── Commission Quest Modal ── */}
       {showCommissionForm && (
-        <div style={s.overlay} onClick={() => setShowCommissionForm(false)}>
-          <div style={s.modal} onClick={e => e.stopPropagation()}>
-            <div style={s.modalHeader}>
-              <h2 style={s.modalTitle}>Commission Quest</h2>
-              <button style={s.closeXBtn} onClick={() => setShowCommissionForm(false)}>✕</button>
-            </div>
-            {formError && <div style={s.errorBox}>{formError}</div>}
-            <div style={s.fieldGroup}>
-              <label style={s.fieldLabel}>Quest Title <span style={{ color: '#c73434' }}>*</span></label>
-              <input style={s.fieldInput} placeholder="Enter quest title here" value={form.title}
-                onChange={e => setForm(f => ({ ...f, title: e.target.value }))} maxLength={100} />
-            </div>
-            <div style={s.fieldGroup}>
-              <label style={s.fieldLabel}>Category <span style={{ color: '#c73434' }}>*</span></label>
-              <div style={s.categoryGrid}>
-                {CATEGORIES.map(cat => (
-                  <label key={cat} style={s.categoryOption}>
-                    <input type="radio" name="cat" value={cat} checked={form.category === cat}
-                      onChange={() => setForm(f => ({ ...f, category: cat }))}
-                      style={{ accentColor: '#34C759', marginRight: '5px' }} />
-                    {cat}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div style={s.fieldGroup}>
-              <label style={s.fieldLabel}>File Attachment <span style={{ color: '#aaa', fontWeight: 400, fontSize: '12px' }}>(optional)</span></label>
-              {compressingImage ? (
-                <div style={{ fontSize: '13px', color: '#888', padding: '8px 0', fontStyle: 'italic' }}>⏳ Processing file...</div>
-              ) : attachmentFile ? (
-                <div style={s.attachPreviewRow}>
-                  <span style={{ fontSize: '18px' }}>{attachmentFile.type.startsWith('image/') ? '🖼️' : '📄'}</span>
-                  <span style={s.attachNameText}>{attachmentFile.name}</span>
-                  <button style={s.removeBtn} onClick={removeAttachment}>✕</button>
-                </div>
-              ) : (
-                <button style={s.uploadBtn} onClick={() => fileInputRef.current?.click()}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                  Upload
-                </button>
-              )}
-              <input ref={fileInputRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFileChange} />
-              <div style={{ fontSize: '11px', color: '#bbb', marginTop: '4px' }}>Images or PDF · max 5MB</div>
-            </div>
-            <div style={s.fieldGroup}>
-              <label style={s.fieldLabel}>Description <span style={{ color: '#c73434' }}>*</span></label>
-              <textarea style={s.fieldTextarea} placeholder="Describe the quest in detail..." value={form.description}
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={4} maxLength={1000} />
-              <div style={{ fontSize: '11px', color: '#bbb', textAlign: 'right', marginTop: '3px' }}>{form.description.length}/1000</div>
-            </div>
-            <div style={s.fieldGroup}>
-              <label style={s.fieldLabel}>Reward Type <span style={{ color: '#c73434' }}>*</span></label>
-              <div style={s.rewardTypeRow}>
-                <label style={s.rewardOption}>
-                  <input type="radio" name="rewardType" checked={form.questType === 'VOLUNTEER'}
-                    onChange={() => setForm(f => ({ ...f, questType: 'VOLUNTEER', reward: '' }))}
-                    style={{ accentColor: '#34C759', marginRight: '6px' }} />
-                  Volunteer
-                </label>
-                <label style={s.rewardOption}>
-                  <input type="radio" name="rewardType" checked={form.questType === 'PAID'}
-                    onChange={() => setForm(f => ({ ...f, questType: 'PAID' }))}
-                    style={{ accentColor: '#34C759', marginRight: '6px' }} />
-                  Payment
-                </label>
-                {form.questType === 'PAID' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
-                    <span style={{ fontWeight: 700, color: '#52734D', fontSize: '15px' }}>₱</span>
-                    <input style={s.paymentInput} type="number" min="1" placeholder="Offered amount"
-                      value={form.reward} onChange={e => setForm(f => ({ ...f, reward: e.target.value }))} />
-                  </div>
-                )}
-              </div>
-              <div style={s.xpNote}>✦ All quests award <strong>+20 XP</strong> upon completion</div>
-            </div>
-            <div style={s.modalFooter}>
-              <button style={s.cancelBtn} onClick={() => setShowCommissionForm(false)}>Cancel</button>
-              <button style={{ ...s.postQuestBtn, opacity: submitting ? 0.7 : 1 }}
-                onClick={handleSubmitQuest} disabled={submitting || compressingImage}>
-                {submitting ? 'Posting...' : 'Post Quest'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <QuestFormModal
+          title="Commission Quest"
+          submitLabel="Post Quest"
+          submitColor="#34C759"
+          notice={null}
+          form={form}
+          setForm={setForm}
+          attachDisplayName={attachmentFile?.name ?? null}
+          attachPreview={attachmentPreview}
+          compressing={compressingImage}
+          error={formError}
+          submitting={submitting}
+          fileInputRef={fileInputRef}
+          onFileChange={e => handleFileChange(e, 'create')}
+          onRemoveAttachment={() => removeAttachment('create')}
+          onSubmit={handleSubmitQuest}
+          onClose={() => setShowCommissionForm(false)}
+          formId="create"
+        />
+      )}
+
+      {/* ── Edit Quest Modal ── */}
+      {showEditForm && editingQuest && (
+        <QuestFormModal
+          title="Edit Quest"
+          submitLabel="Save Changes"
+          submitColor="#52734D"
+          notice={
+            editingQuest.status === 'PENDING'
+              ? `⚠️ This quest is in progress — ${editingQuest.helperUsername ?? 'the helper'} will be notified of your changes via chat.`
+              : '✏️ Only open or pending quests can be edited.'
+          }
+          noticeBg={editingQuest.status === 'PENDING' ? '#fef3c7' : '#f0f9ff'}
+          noticeBorder={editingQuest.status === 'PENDING' ? '#fde68a' : '#bae6fd'}
+          noticeColor={editingQuest.status === 'PENDING' ? '#92400e' : '#0369a1'}
+          form={editForm}
+          setForm={setEditForm}
+          attachDisplayName={editAttachDisplayName}
+          attachIsImage={editAttachIsImage}
+          attachPreview={editAttachmentPreview}
+          compressing={editCompressing}
+          error={editFormError}
+          submitting={editSubmitting}
+          fileInputRef={editFileInputRef}
+          onFileChange={e => handleFileChange(e, 'edit')}
+          onRemoveAttachment={() => removeAttachment('edit')}
+          onSubmit={handleSubmitEdit}
+          onClose={() => { setShowEditForm(false); setEditingQuest(null); }}
+          formId="edit"
+        />
       )}
     </div>
   );
 }
 
-// ── Quest Card (board card, not the modal) ────────────────────────────────────
+// ── Shared Quest Form Modal ───────────────────────────────────────────────────
 
-function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComplete, accepting, completing }: {
+interface QuestFormModalProps {
+  title: string;
+  submitLabel: string;
+  submitColor: string;
+  notice: string | null;
+  noticeBg?: string;
+  noticeBorder?: string;
+  noticeColor?: string;
+  form: QuestFormState;
+  setForm: React.Dispatch<React.SetStateAction<QuestFormState>>;
+  attachDisplayName: string | null;
+  attachIsImage?: boolean;
+  attachPreview: string | null;
+  compressing: boolean;
+  error: string;
+  submitting: boolean;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemoveAttachment: () => void;
+  onSubmit: () => void;
+  onClose: () => void;
+  formId: string;
+}
+
+function QuestFormModal({
+  title, submitLabel, submitColor, notice,
+  noticeBg = '#f0f9ff', noticeBorder = '#bae6fd', noticeColor = '#0369a1',
+  form, setForm, attachDisplayName, attachIsImage, attachPreview,
+  compressing, error, submitting, fileInputRef,
+  onFileChange, onRemoveAttachment, onSubmit, onClose, formId,
+}: QuestFormModalProps) {
+  const isImg = attachIsImage ?? (attachDisplayName ? /\.(jpg|jpeg|png|gif|webp)$/i.test(attachDisplayName) : false);
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>{title}</h2>
+          <button style={s.closeXBtn} onClick={onClose}>✕</button>
+        </div>
+
+        {notice && (
+          <div style={{ backgroundColor: noticeBg, border: `1px solid ${noticeBorder}`, borderRadius: '8px', padding: '9px 13px', fontSize: '13px', color: noticeColor, marginBottom: '14px', marginTop: '10px', lineHeight: '1.5' }}>
+            {notice}
+          </div>
+        )}
+
+        {error && <div style={s.errorBox}>{error}</div>}
+
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Quest Title <span style={{ color: '#c73434' }}>*</span></label>
+          <input style={s.fieldInput} placeholder="Enter quest title here" value={form.title}
+            onChange={e => setForm(f => ({ ...f, title: e.target.value }))} maxLength={100} />
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Category <span style={{ color: '#c73434' }}>*</span></label>
+          <div style={s.categoryGrid}>
+            {CATEGORIES.map(cat => (
+              <label key={cat} style={s.categoryOption}>
+                <input type="radio" name={`cat-${formId}`} value={cat} checked={form.category === cat}
+                  onChange={() => setForm(f => ({ ...f, category: cat }))}
+                  style={{ accentColor: '#34C759', marginRight: '5px' }} />
+                {cat}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>
+            File Attachment <span style={{ color: '#aaa', fontWeight: 400, fontSize: '12px' }}>(optional)</span>
+          </label>
+          {compressing ? (
+            <div style={{ fontSize: '13px', color: '#888', padding: '8px 0', fontStyle: 'italic' }}>⏳ Processing file...</div>
+          ) : attachDisplayName ? (
+            <div style={s.attachPreviewRow}>
+              <span style={{ fontSize: '18px' }}>{isImg ? '🖼️' : '📄'}</span>
+              <span style={s.attachNameText}>{attachDisplayName}</span>
+              <button style={s.removeBtn} onClick={onRemoveAttachment}>✕</button>
+            </div>
+          ) : (
+            <button style={s.uploadBtn} onClick={() => fileInputRef.current?.click()}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Upload
+            </button>
+          )}
+          <input ref={fileInputRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={onFileChange} />
+          <div style={{ fontSize: '11px', color: '#bbb', marginTop: '4px' }}>Images or PDF · max 5MB</div>
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Description <span style={{ color: '#c73434' }}>*</span></label>
+          <textarea style={s.fieldTextarea} placeholder="Describe the quest in detail..." value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={4} maxLength={1000} />
+          <div style={{ fontSize: '11px', color: '#bbb', textAlign: 'right', marginTop: '3px' }}>{form.description.length}/1000</div>
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Reward Type <span style={{ color: '#c73434' }}>*</span></label>
+          <div style={s.rewardTypeRow}>
+            <label style={s.rewardOption}>
+              <input type="radio" name={`rewardType-${formId}`} checked={form.questType === 'VOLUNTEER'}
+                onChange={() => setForm(f => ({ ...f, questType: 'VOLUNTEER', reward: '' }))}
+                style={{ accentColor: '#34C759', marginRight: '6px' }} />
+              Volunteer
+            </label>
+            <label style={s.rewardOption}>
+              <input type="radio" name={`rewardType-${formId}`} checked={form.questType === 'PAID'}
+                onChange={() => setForm(f => ({ ...f, questType: 'PAID' }))}
+                style={{ accentColor: '#34C759', marginRight: '6px' }} />
+              Payment
+            </label>
+            {form.questType === 'PAID' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
+                <span style={{ fontWeight: 700, color: '#52734D', fontSize: '15px' }}>₱</span>
+                <input style={s.paymentInput} type="number" min="1" placeholder="Offered amount"
+                  value={form.reward} onChange={e => setForm(f => ({ ...f, reward: e.target.value }))} />
+              </div>
+            )}
+          </div>
+          <div style={s.xpNote}>✦ All quests award <strong>+20 XP</strong> upon completion</div>
+        </div>
+        <div style={s.modalFooter}>
+          <button style={s.cancelBtn} onClick={onClose}>Cancel</button>
+          <button
+            style={{ ...s.submitBtn, backgroundColor: submitColor, opacity: submitting || compressing ? 0.7 : 1 }}
+            onClick={onSubmit}
+            disabled={submitting || compressing}
+          >
+            {submitting ? 'Saving...' : submitLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Quest Card ────────────────────────────────────────────────────────────────
+
+function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComplete, onEdit, accepting, completing }: {
   quest: Quest; currentUserId: number;
   onClick: () => void; onDelete: () => void; onAccept: () => void; onComplete: () => void;
+  onEdit: () => void;
   accepting: boolean; completing: boolean;
 }) {
   const isPaid = quest.questType === 'PAID';
   const isOwn = quest.posterId === currentUserId;
   const isTaken = quest.status === 'PENDING';
+  const isOpen = quest.status === 'OPEN';
+  const canEdit = isOwn && (isOpen || isTaken); // ← OPEN or PENDING
   const hasImage = !!(quest.attachmentName?.match(/\.(jpg|jpeg|png|gif|webp)$/i)) && !!quest.attachmentData;
   const hasPdf = !!(quest.attachmentName?.match(/\.pdf$/i)) && !!quest.attachmentData;
 
@@ -616,11 +840,9 @@ function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComple
           )}
         </div>
         <div style={cs.descText}>{quest.description}</div>
-
         {hasImage && (
           <div style={cs.imageThumbnailWrap} onClick={e => e.stopPropagation()}>
-            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={cs.imageThumbnail}
-              onClick={onClick} />
+            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={cs.imageThumbnail} onClick={onClick} />
           </div>
         )}
         {hasPdf && (
@@ -645,13 +867,12 @@ function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComple
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={cs.xpText}>+{quest.xpReward} XP</span>
-
-          {isOwn && quest.status === 'PENDING' && (
+          {isOwn && isTaken && (
             <button style={cs.completeCardBtn} onClick={e => { e.stopPropagation(); onComplete(); }} disabled={completing}>
-              {completing ? '...' : '✓ Mark as Completed'}
+              {completing ? '...' : '✓ Done'}
             </button>
           )}
-          {!isOwn && quest.status === 'OPEN' && (
+          {!isOwn && isOpen && (
             <button style={{ ...cs.acceptCardBtn, opacity: accepting ? 0.7 : 1 }}
               onClick={e => { e.stopPropagation(); onAccept(); }} disabled={accepting}>
               {accepting ? '...' : 'Accept'}
@@ -663,9 +884,16 @@ function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComple
           {quest.acceptedByMe && (
             <span style={cs.myQuestBadge}>My Quest</span>
           )}
+          {/* Edit: show on own OPEN or PENDING quests */}
+          {canEdit && (
+            <button style={cs.editCardBtn} onClick={e => { e.stopPropagation(); onEdit(); }} title="Edit quest">
+              ✏️
+            </button>
+          )}
           {isOwn && (
-            <button style={cs.deleteCardBtn}
-              onClick={e => { e.stopPropagation(); onDelete(); }} title="Delete quest">🗑</button>
+            <button style={cs.deleteCardBtn} onClick={e => { e.stopPropagation(); onDelete(); }} title="Delete quest">
+              🗑
+            </button>
           )}
         </div>
       </div>
@@ -726,7 +954,7 @@ const s: Record<string, React.CSSProperties> = {
   xpNote: { fontSize: '12px', color: '#666', marginTop: '10px', backgroundColor: '#f9fff5', border: '1px solid #DDFFBC', borderRadius: '6px', padding: '7px 12px', display: 'inline-block' },
   modalFooter: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px', paddingTop: '16px', borderTop: '1px solid #f0f0f0' },
   cancelBtn: { background: 'none', border: '1.5px solid #ddd', borderRadius: '20px', padding: '9px 22px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px', color: '#777', cursor: 'pointer' },
-  postQuestBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '20px', padding: '9px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
+  submitBtn: { color: '#fff', border: 'none', borderRadius: '20px', padding: '9px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
 };
 
 const cs: Record<string, React.CSSProperties> = {
@@ -751,6 +979,7 @@ const cs: Record<string, React.CSSProperties> = {
   paidText: { fontWeight: 700, fontSize: '14px', color: '#34C759' },
   xpText: { fontWeight: 700, fontSize: '13px', color: '#52734D' },
   deleteCardBtn: { background: 'none', border: '1.5px solid #c73434', borderRadius: '6px', color: '#c73434', fontSize: '13px', padding: '3px 8px', cursor: 'pointer' },
+  editCardBtn: { background: 'none', border: '1.5px solid #52734D', borderRadius: '6px', color: '#52734D', fontSize: '13px', padding: '3px 8px', cursor: 'pointer' },
   acceptCardBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 12px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
   completeCardBtn: { backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
   takenBadge: { backgroundColor: '#6b7280', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
