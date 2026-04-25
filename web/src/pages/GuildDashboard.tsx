@@ -445,6 +445,7 @@ export default function GuildDashboard() {
   // ── Filter ────────────────────────────────────────────────────────────────
 
   const visibleQuests = quests.filter(q => q.status !== 'COMPLETED' && q.status !== 'CANCELLED');
+  const acceptedCount = visibleQuests.filter(q => q.status === 'PENDING' && q.acceptedByMe).length;
 
   const filtered = visibleQuests.filter(q => {
     const matchSearch = q.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -552,6 +553,9 @@ export default function GuildDashboard() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div style={s.limitHint}>
+              Accepted quests: <strong>{acceptedCount}/3</strong> in this guild. You can hold up to 3 active quests per guild at a time.
             </div>
           </div>
 
@@ -923,6 +927,7 @@ const s: Record<string, React.CSSProperties> = {
   searchIcon: { position: 'absolute', left: '11px', pointerEvents: 'none' },
   searchInput: { width: '100%', padding: '8px 12px 8px 32px', border: '1.5px solid #e8e8e8', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '13px', outline: 'none', backgroundColor: '#fafafa', boxSizing: 'border-box' },
   statusFilters: { display: 'flex', gap: '6px', flexShrink: 0 },
+  limitHint: { marginTop: '10px', color: '#516144', fontSize: '13px', lineHeight: 1.5, padding: '0 2px' },
   filterChip: { background: '#f5f5f5', border: '1.5px solid #e8e8e8', borderRadius: '20px', padding: '5px 12px', fontFamily: "'Prompt', sans-serif", fontSize: '12px', fontWeight: 600, color: '#666', cursor: 'pointer' },
   filterChipActive: { backgroundColor: '#52734D', borderColor: '#52734D', color: '#fff' },
   questGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', padding: '16px 20px 20px' },
