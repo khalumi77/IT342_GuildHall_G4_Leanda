@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import Landing from './pages/Landing';
 import Register from './pages/Register';
 import Login from './pages/Login';
 import SkillsSelection from './pages/SkillsSelection';
@@ -19,7 +20,15 @@ import Chat from './pages/Chat';
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
   if (isLoading || authenticating || (!user && token)) {
-    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888' }}>Loading...</div>;
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888',
+        backgroundColor: '#0a150a',
+      }}>
+        Loading...
+      </div>
+    );
   }
   return user ? <>{children}</> : <Navigate to="/login" replace />;
 }
@@ -27,16 +36,42 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
   if (isLoading || authenticating || (!user && token)) {
-    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888' }}>Loading...</div>;
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', fontFamily: "'Prompt', sans-serif", color: '#888',
+        backgroundColor: '#0a150a',
+      }}>
+        Loading...
+      </div>
+    );
   }
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'ROLE_GUILDMASTER') return <Navigate to="/guilds" replace />;
   return <>{children}</>;
 }
 
+/**
+ * PublicRoute — for /login and /register.
+ * If already logged in, redirect to the appropriate dashboard.
+ * If loading, show nothing (avoids flash).
+ */
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authenticating, transitioning } = useAuth();
   if (isLoading || authenticating || transitioning) return null;
+  if (user) return <Navigate to={user.role === 'ROLE_GUILDMASTER' ? '/admin' : '/guilds'} replace />;
+  return <>{children}</>;
+}
+
+/**
+ * LandingRoute — for the root "/" path.
+ * If already logged in, redirect to dashboard.
+ * If loading, show nothing.
+ * Otherwise show the landing page.
+ */
+function LandingRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading, authenticating } = useAuth();
+  if (isLoading || authenticating) return null;
   if (user) return <Navigate to={user.role === 'ROLE_GUILDMASTER' ? '/admin' : '/guilds'} replace />;
   return <>{children}</>;
 }
@@ -55,22 +90,43 @@ export default function App() {
 
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          {/* Landing page — shown to logged-out visitors at "/" */}
+          <Route path="/" element={<LandingRoute><Landing /></LandingRoute>} />
+
+          {/* Auth pages */}
           <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+
+          {/* Google OAuth2 callback — no auth wrapper, handled internally */}
           <Route path="/auth/google/success" element={<GoogleCallback />} />
-          <Route path="/skills"  element={<PrivateRoute><SkillsSelection /></PrivateRoute>} />
+
+          {/* Onboarding */}
+          <Route path="/skills" element={<PrivateRoute><SkillsSelection /></PrivateRoute>} />
+
+          {/* Profile */}
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
-          <Route path="/guilds"              element={<PrivateRoute><Guilds /></PrivateRoute>} />
-          <Route path="/guilds/browse"       element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
-          <Route path="/guilds/:guildId"     element={<PrivateRoute><GuildDashboard /></PrivateRoute>} />
+
+          {/* Guilds */}
+          <Route path="/guilds"          element={<PrivateRoute><Guilds /></PrivateRoute>} />
+          <Route path="/guilds/browse"   element={<PrivateRoute><BrowseGuilds /></PrivateRoute>} />
+          <Route path="/guilds/:guildId" element={<PrivateRoute><GuildDashboard /></PrivateRoute>} />
+
+          {/* Quests */}
           <Route path="/quests/commissioned" element={<PrivateRoute><CommissionedQuests /></PrivateRoute>} />
           <Route path="/quests/accepted"     element={<PrivateRoute><AcceptedQuests /></PrivateRoute>} />
+
+          {/* Admin */}
           <Route path="/admin"               element={<AdminRoute><AdminDashboard /></AdminRoute>} />
           <Route path="/admin/users/:userId" element={<AdminRoute><UserProfileView /></AdminRoute>} />
-          <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />
-          <Route path="*"          element={<Navigate to="/login" replace />} />
+
+          {/* Chat */}
           <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />
+
+          {/* Legacy redirect */}
+          <Route path="/dashboard" element={<Navigate to="/guilds" replace />} />
+
+          {/* Catch-all — send unknown routes to landing */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

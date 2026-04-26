@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 const SKILLS = [
   { name: 'Design',       emoji: '🎨' },
   { name: 'Academic',     emoji: '📚' },
+  { name: 'Caregiving',   emoji: '🤝' },
   { name: 'Manual Labor', emoji: '💪' },
   { name: 'IT/Tech',      emoji: '💻' },
   { name: 'Media',        emoji: '🎤' },

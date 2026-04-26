@@ -20,7 +20,7 @@ interface GuildInfo {
 
 type Quest = QuestDetail;
 
-const CATEGORIES = ['Design', 'Academic', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
+const CATEGORIES = ['Design', 'Academic', 'Caregiving', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
 
 // ── Daily quote helpers ───────────────────────────────────────────────────────
 

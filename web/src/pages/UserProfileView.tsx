@@ -33,7 +33,7 @@ function xpProgress(totalXp: number, level: number) {
 }
 
 const SKILL_EMOJI: Record<string, string> = {
-  Design: '🎨', Academic: '📚', Writing: '✍️', Media: '🎤',
+  Design: '🎨', Academic: '📚', Caregiving: '🤝', Writing: '✍️', Media: '🎤',
   'Manual Labor': '💪', Tutoring: '🎓', 'IT/Tech': '💻',
 };
 
