@@ -48,7 +48,7 @@ public class AuthService {
     private final AuthStrategyResolver authStrategyResolver; // Strategy Pattern
 
     private static final List<String> VALID_SKILLS = List.of(
-            "Design", "Academic", "Writing", "Media", "Manual Labor", "Tutoring", "IT/Tech"
+            "Design", "Academic", "Caregiving", "Writing", "Media", "Manual Labor", "Tutoring", "IT/Tech"
     );
 
     /**
