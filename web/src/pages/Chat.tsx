@@ -1,7 +1,7 @@
 // src/pages/Chat.tsx
 //
 // 1-to-1 user chat using STOMP over WebSocket.
-// One conversation per user-pair — quest-acceptance shows as a clickable card.
+// One conversation per user-pair. Messages go to /topic/conversation/{id}.
 // Sidebar: recent conversations + username search to start new ones.
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -135,13 +135,21 @@ export default function Chat() {
 
   // WebSocket
   const stompRef = useRef<any>(null);
-  const subConvRef = useRef<any>(null);   // /topic/conversation/{id}
-  const subSidebarRef = useRef<any>(null); // /topic/user/{myId}/conversations
+  const subConvRef = useRef<any>(null);
+  const subSidebarRef = useRef<any>(null);
   const [wsReady, setWsReady] = useState(false);
   const scriptsRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Ref mirror of `active` so the sidebar WS handler always sees the latest value
+  // without needing it in its dependency array (which would cause re-subscription loops)
+  const activeRef = useRef<Conversation | null>(null);
+  useEffect(() => { activeRef.current = active; }, [active]);
+
+  // Context menu state for the ··· button on each conversation row
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const convMenuRef = useRef<HTMLDivElement>(null);
 
   // ── Load scripts + connect ──────────────────────────────────────────────────
 
@@ -191,12 +199,16 @@ export default function Chat() {
         try {
           const update: Conversation & { type?: string } = JSON.parse(frame.body);
           setConversations(prev => {
-            const exists = prev.find(c => c.conversationId === update.conversationId);
+            // If this conversation is currently open, keep unreadCount at 0
+            // because the user is actively reading it
+            const isActive = activeRef.current?.conversationId === update.conversationId;
+            const merged = { ...update, unreadCount: isActive ? 0 : update.unreadCount };
+            const exists = prev.find(c => c.conversationId === merged.conversationId);
             if (exists) {
-              return [...prev.filter(c => c.conversationId !== update.conversationId), update]
+              return [...prev.filter(c => c.conversationId !== merged.conversationId), merged]
                 .sort((a, b) => (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''));
             }
-            return [update, ...prev];
+            return [merged, ...prev];
           });
         } catch { }
       }
@@ -214,7 +226,22 @@ export default function Chat() {
       (frame: any) => {
         try {
           const msg: ChatMessage = JSON.parse(frame.body);
-          setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+          setMessages(prev => {
+            // If the real message already exists by ID, skip
+            if (prev.some(m => m.id === msg.id)) return prev;
+            // Replace an optimistic message from the same sender with same content
+            // (negative temp ID, matching content) with the real server message
+            const optimisticIdx = prev.findIndex(
+              m => m.id < 0 && m.senderId === msg.senderId && m.content === msg.content
+            );
+            if (optimisticIdx !== -1) {
+              const next = [...prev];
+              next[optimisticIdx] = msg;
+              return next;
+            }
+            // Otherwise it's a message from the other person — just append
+            return [...prev, msg];
+          });
         } catch { }
       }
     );
@@ -233,7 +260,6 @@ export default function Chat() {
         const list: Conversation[] = Array.isArray(data) ? data : [];
         setConversations(list);
 
-        // Auto-open from URL param
         const convIdParam = searchParams.get('conversationId');
         if (convIdParam) {
           const target = list.find(c => c.conversationId === Number(convIdParam));
@@ -276,6 +302,16 @@ export default function Chat() {
     setActive(conv);
     setMessages([]);
     setMsgsLoading(true);
+
+    // Immediately zero the unread badge in local state — no flicker waiting for server
+    setConversations(prev =>
+      prev.map(c => c.conversationId === conv.conversationId ? { ...c, unreadCount: 0 } : c)
+    );
+
+    // Tell the backend to mark all messages in this conversation as read
+    // Fire-and-forget — we don't block the UI on this
+    api.post(`/chat/conversations/${conv.conversationId}/read`).catch(() => {});
+
     try {
       const res = await api.get(`/chat/conversations/${conv.conversationId}/messages`);
       const data = res.data?.data ?? res.data;
@@ -305,12 +341,38 @@ export default function Chat() {
   // ── Send message ────────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async () => {
-    if (!active || !input.trim() || sending) return;
+    if (!active || !input.trim() || sending || !user) return;
     const content = input.trim();
     setInput('');
     setSending(true);
 
+    // Optimistically append the message to local state immediately.
+    // This makes it appear right away like a real chat app.
+    // The WebSocket echo from the server will arrive too — the dedup
+    // check (prev.some(m => m.id === msg.id)) prevents it showing twice
+    // because our optimistic message uses a negative temp ID that will
+    // never match the real server ID, so we remove it when the real one lands.
+    const tempId = -(Date.now()); // negative so it never collides with a real DB id
+    const optimistic: ChatMessage = {
+      id: tempId,
+      conversationId: active.conversationId,
+      senderId: user.id,
+      senderUsername: user.username,
+      senderProfilePicture: user.profilePictureUrl ?? null,
+      content,
+      messageType: 'TEXT',
+      questId: null,
+      guildId: null,
+      questTitle: null,
+      guildName: null,
+      isRead: true,
+      sentAt: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, optimistic]);
+
     if (stompRef.current?.connected) {
+      // STOMP path: server will broadcast the real message back to
+      // /topic/conversation/{id}. When it arrives we replace the optimistic one.
       stompRef.current.send(
         `/app/chat/${active.conversationId}`,
         { Authorization: `Bearer ${localStorage.getItem('guildhall_token')}` },
@@ -318,14 +380,47 @@ export default function Chat() {
       );
       setSending(false);
     } else {
-      try { await api.post(`/chat/conversations/${active.conversationId}/messages`, { content }); }
-      catch { } finally { setSending(false); }
+      // REST fallback: response contains the saved message — swap optimistic with real
+      try {
+        const res = await api.post(`/chat/conversations/${active.conversationId}/messages`, { content });
+        const saved: ChatMessage = res.data?.data ?? res.data;
+        setMessages(prev => prev.map(m => m.id === tempId ? saved : m));
+      } catch {
+        // Remove the optimistic message on failure so the user knows it didn't send
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+      } finally {
+        setSending(false);
+      }
     }
-  }, [active, input, sending]);
+  }, [active, input, sending, user]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
+
+  // ── Close conv context menu when clicking outside ──────────────────────────
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (convMenuRef.current && !convMenuRef.current.contains(e.target as Node)) {
+        setOpenMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // ── Remove conversation from sidebar (local only, messages preserved) ───────
+
+  const removeConversation = useCallback((convId: number) => {
+    setConversations(prev => prev.filter(c => c.conversationId !== convId));
+    // If the removed conversation was open, clear the chat panel
+    if (activeRef.current?.conversationId === convId) {
+      setActive(null);
+      setMessages([]);
+    }
+    setOpenMenuId(null);
+  }, []);
 
   // ── Navigate to quest from system message ───────────────────────────────────
 
@@ -336,17 +431,24 @@ export default function Chat() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div style={s.page}>
-      <Navbar />
-      <div style={s.layout}>
+    // ── KEY FIX: outer wrapper is exactly 100vh, no overflow, no scroll ──
+    <div style={s.root}>
+      {/* Navbar is fixed height, does not scroll */}
+      <div style={s.navbarWrap}>
+        <Navbar />
+      </div>
+
+      {/* Below navbar: sidebar + chat, each with their own scroll */}
+      <div style={s.body}>
 
         {/* ── Sidebar ── */}
         <aside style={s.sidebar}>
+          {/* Fixed sidebar header — never scrolls */}
           <div style={s.sidebarHeader}>
             <h2 style={s.sidebarTitle}>Chats</h2>
           </div>
 
-          {/* Search bar */}
+          {/* Search bar — also fixed */}
           <div style={s.searchOuter} ref={searchRef}>
             <div style={s.searchWrap}>
               {searching ? (
@@ -391,7 +493,7 @@ export default function Chat() {
             )}
           </div>
 
-          {/* Conversation list */}
+          {/* ── Conversation list — this is the ONLY thing that scrolls in the sidebar ── */}
           <div style={s.convList}>
             {convLoading ? (
               <div style={s.sideEmpty}>Loading chats...</div>
@@ -399,33 +501,74 @@ export default function Chat() {
               <div style={s.sideEmpty}>
                 No chats yet.{'\n'}Search for a user above to start chatting!
               </div>
-            ) : conversations.map(conv => (
-              <button
-                key={conv.conversationId}
-                style={{ ...s.convItem, ...(active?.conversationId === conv.conversationId ? s.convItemActive : {}) }}
-                onClick={() => openConversation(conv)}
-              >
-                <Avatar username={conv.otherUsername} pic={conv.otherProfilePicture} size={40} />
-                <div style={s.convInfo}>
-                  <div style={s.convName}>{conv.otherUsername}</div>
-                  <div style={s.convPreview}>
-                    {conv.lastMessage
-                      ? (conv.lastMessageType === 'SYSTEM'
-                          ? <span style={{ color: '#52734D', fontWeight: 600 }}>⚔️ Quest accepted</span>
-                          : conv.lastMessage.length > 36 ? conv.lastMessage.slice(0, 36) + '…' : conv.lastMessage)
-                      : <span style={{ fontStyle: 'italic', color: '#aaa' }}>No messages yet</span>}
+            ) : conversations.map(conv => {
+              const isActive = active?.conversationId === conv.conversationId;
+              const menuOpen = openMenuId === conv.conversationId;
+              return (
+                <div
+                  key={conv.conversationId}
+                  style={{ ...s.convRow, ...(isActive ? s.convRowActive : {}) }}
+                >
+                  {/* Clickable main area */}
+                  <button
+                    style={s.convItem}
+                    onClick={() => { openConversation(conv); setOpenMenuId(null); }}
+                  >
+                    <Avatar username={conv.otherUsername} pic={conv.otherProfilePicture} size={40} />
+                    <div style={s.convInfo}>
+                      <div style={s.convName}>{conv.otherUsername}</div>
+                      <div style={s.convPreview}>
+                        {conv.lastMessage
+                          ? (conv.lastMessageType === 'SYSTEM'
+                              ? <span style={{ color: '#52734D', fontWeight: 600 }}>⚔️ Quest accepted</span>
+                              : conv.lastMessage.length > 36 ? conv.lastMessage.slice(0, 36) + '…' : conv.lastMessage)
+                          : <span style={{ fontStyle: 'italic', color: '#aaa' }}>No messages yet</span>}
+                      </div>
+                    </div>
+                    <div style={s.convMeta}>
+                      <div style={s.convTime}>{fmtTime(conv.lastMessageAt)}</div>
+                      {conv.unreadCount > 0 && <div style={s.unread}>{conv.unreadCount}</div>}
+                    </div>
+                  </button>
+
+                  {/* ··· menu button + dropdown */}
+                  <div
+                    style={s.convMenuWrap}
+                    ref={menuOpen ? convMenuRef : undefined}
+                  >
+                    <button
+                      style={s.convMenuBtn}
+                      title="Options"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setOpenMenuId(menuOpen ? null : conv.conversationId);
+                      }}
+                    >
+                      ···
+                    </button>
+                    {menuOpen && (
+                      <div style={s.convMenuDropdown}>
+                        <button
+                          style={s.convMenuRemove}
+                          onClick={e => { e.stopPropagation(); removeConversation(conv.conversationId); }}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c73434" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                            <path d="M10 11v6"/><path d="M14 11v6"/>
+                            <path d="M9 6V4h6v2"/>
+                          </svg>
+                          Remove Chat
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div style={s.convMeta}>
-                  <div style={s.convTime}>{fmtTime(conv.lastMessageAt)}</div>
-                  {conv.unreadCount > 0 && <div style={s.unread}>{conv.unreadCount}</div>}
-                </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         </aside>
 
-        {/* ── Chat main ── */}
+        {/* ── Chat main — messages scroll, input is pinned to bottom ── */}
         <main style={s.chatMain}>
           {!active ? (
             <div style={s.empty}>
@@ -439,14 +582,13 @@ export default function Chat() {
             </div>
           ) : (
             <>
-              {/* Header */}
+              {/* Header — pinned, does not scroll */}
               <div style={s.header}>
                 <Avatar username={active.otherUsername} pic={active.otherProfilePicture} size={38} />
                 <div style={s.headerInfo}>
                   <div style={s.headerName}>{active.otherUsername}</div>
                 </div>
                 <button style={s.profileBtn} onClick={async () => {
-                  // Navigate to guild if there's a shared quest, else just show username
                   const lastSystem = [...messages].reverse().find(m => m.messageType === 'SYSTEM');
                   if (lastSystem?.guildId) navigate(`/guilds/${lastSystem.guildId}`);
                 }} title="View shared guild">
@@ -454,7 +596,7 @@ export default function Chat() {
                 </button>
               </div>
 
-              {/* Messages */}
+              {/* Messages — the ONLY scrollable area in the chat panel */}
               <div style={s.messages}>
                 {msgsLoading ? (
                   <div style={s.loadingTxt}>Loading messages...</div>
@@ -502,7 +644,7 @@ export default function Chat() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Input */}
+              {/* Input bar — pinned to bottom of chat panel, never scrolls */}
               <div style={s.inputBar}>
                 <input
                   ref={inputRef}
@@ -535,60 +677,414 @@ export default function Chat() {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
+const NAVBAR_H = 56; // px — must match Navbar height
+
 const s: Record<string, React.CSSProperties> = {
-  page: { minHeight: '100vh', backgroundColor: '#f5f5f5', fontFamily: "'Prompt', sans-serif", display: 'flex', flexDirection: 'column' },
-  layout: { display: 'flex', flex: 1, height: 'calc(100vh - 56px)', overflow: 'hidden' },
+  // ── Root: locks the entire page to the viewport. Nothing outside this scrolls.
+  root: {
+    height: '100vh',        // exactly the viewport — not min-height
+    overflow: 'hidden',     // prevent the page itself from ever scrolling
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: "'Prompt', sans-serif",
+    backgroundColor: '#f5f5f5',
+  },
 
-  sidebar: { width: '280px', minWidth: '280px', backgroundColor: '#DDFFBC', borderRight: '1px solid rgba(82,115,77,0.2)', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-  sidebarHeader: { padding: '18px 18px 6px' },
-  sidebarTitle: { color: '#34C759', fontWeight: 700, fontSize: '22px', margin: 0 },
+  // Navbar slot — fixed height, never grows
+  navbarWrap: {
+    flexShrink: 0,
+    height: `${NAVBAR_H}px`,
+  },
 
-  searchOuter: { position: 'relative', margin: '6px 14px 4px' },
-  searchWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
-  searchIcon: { position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '12px' },
-  searchInput: { width: '100%', padding: '8px 30px 8px 30px', border: '1.5px solid rgba(82,115,77,0.3)', borderRadius: '20px', fontFamily: "'Prompt', sans-serif", fontSize: '13px', backgroundColor: '#fff', outline: 'none', boxSizing: 'border-box' },
-  clearBtn: { position: 'absolute', right: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: '12px', padding: '2px 4px', display: 'flex', alignItems: 'center' },
+  // Body below navbar — fills remaining height, split into sidebar + chat
+  body: {
+    display: 'flex',
+    flex: 1,
+    overflow: 'hidden',   // children handle their own overflow
+    minHeight: 0,         // required so flex children can shrink below content size
+  },
 
-  searchDropdown: { position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, backgroundColor: '#fff', border: '1.5px solid rgba(82,115,77,0.2)', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 200, overflow: 'hidden', maxHeight: '280px', overflowY: 'auto' },
-  searchResult: { display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', textAlign: 'left', fontFamily: "'Prompt', sans-serif' " },
+  // ── Sidebar: fixed width, full height of body, internal scroll only in convList
+  sidebar: {
+    width: '280px',
+    minWidth: '280px',
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',         // sidebar itself doesn't scroll
+    backgroundColor: '#DDFFBC',
+    borderRight: '1px solid rgba(82,115,77,0.2)',
+  },
+
+  sidebarHeader: {
+    padding: '18px 18px 6px',
+    flexShrink: 0,              // header never shrinks or scrolls
+  },
+  sidebarTitle: {
+    color: '#34C759',
+    fontWeight: 700,
+    fontSize: '22px',
+    margin: 0,
+  },
+
+  searchOuter: {
+    position: 'relative',
+    margin: '6px 14px 4px',
+    flexShrink: 0,              // search bar never scrolls away
+  },
+  searchWrap: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: '10px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    pointerEvents: 'none',
+    fontSize: '12px',
+  },
+  searchInput: {
+    width: '100%',
+    padding: '8px 30px 8px 30px',
+    border: '1.5px solid rgba(82,115,77,0.3)',
+    borderRadius: '20px',
+    fontFamily: "'Prompt', sans-serif",
+    fontSize: '13px',
+    backgroundColor: '#fff',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  clearBtn: {
+    position: 'absolute',
+    right: '8px',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: '#aaa',
+    fontSize: '12px',
+    padding: '2px 4px',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  searchDropdown: {
+    position: 'absolute',
+    top: 'calc(100% + 6px)',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    border: '1.5px solid rgba(82,115,77,0.2)',
+    borderRadius: '12px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.1)',
+    zIndex: 200,
+    overflow: 'hidden',
+    maxHeight: '280px',
+    overflowY: 'auto',
+  },
+  searchResult: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    width: '100%',
+    padding: '10px 14px',
+    background: 'none',
+    border: 'none',
+    borderBottom: '1px solid #f5f5f5',
+    cursor: 'pointer',
+    textAlign: 'left',
+    fontFamily: "'Prompt', sans-serif",
+  },
   resultName: { fontWeight: 700, fontSize: '13px', color: '#222' },
   resultRank: { fontSize: '11px', color: '#888' },
-  startChip: { backgroundColor: '#34C759', color: '#fff', fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', flexShrink: 0 },
-  noResults: { padding: '14px 16px', fontSize: '13px', color: '#aaa', textAlign: 'center' },
+  startChip: {
+    backgroundColor: '#34C759',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: 700,
+    padding: '2px 8px',
+    borderRadius: '20px',
+    flexShrink: 0,
+  },
+  noResults: {
+    padding: '14px 16px',
+    fontSize: '13px',
+    color: '#aaa',
+    textAlign: 'center',
+  },
 
-  convList: { flex: 1, overflowY: 'auto' },
-  sideEmpty: { padding: '28px 18px', textAlign: 'center', color: '#888', fontSize: '13px', lineHeight: '1.7', whiteSpace: 'pre-line' },
-  convItem: { display: 'flex', alignItems: 'center', gap: '11px', padding: '11px 16px', background: 'none', border: 'none', borderBottom: '1px solid rgba(82,115,77,0.1)', cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: "'Prompt', sans-serif", transition: 'background 0.1s' },
-  convItemActive: { backgroundColor: 'rgba(52,199,89,0.15)', borderLeft: '3px solid #34C759', paddingLeft: '13px' },
+  // ── Conversation list: the ONLY part of the sidebar that scrolls
+  convList: {
+    flex: 1,
+    overflowY: 'auto',    // independent scroll
+    minHeight: 0,          // allow flex child to shrink
+  },
+
+  sideEmpty: {
+    padding: '28px 18px',
+    textAlign: 'center',
+    color: '#888',
+    fontSize: '13px',
+    lineHeight: '1.7',
+    whiteSpace: 'pre-line',
+  },
+  convRow: {
+    position: 'relative' as const,
+    display: 'flex',
+    alignItems: 'center',
+    borderBottom: '1px solid rgba(82,115,77,0.1)',
+    backgroundColor: 'transparent',
+    transition: 'background 0.1s',
+  },
+  convRowActive: {
+    backgroundColor: 'rgba(52,199,89,0.15)',
+    borderLeft: '3px solid #34C759',
+  },
+  convItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '11px',
+    padding: '11px 4px 11px 16px',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    textAlign: 'left' as const,
+    flex: 1,
+    minWidth: 0,
+    fontFamily: "'Prompt', sans-serif",
+  },
+  convMenuWrap: {
+    position: 'relative' as const,
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    paddingRight: '6px',
+  },
+  convMenuBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: '#888',
+    fontSize: '16px',
+    fontWeight: 700,
+    letterSpacing: '1px',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    lineHeight: 1,
+    transition: 'background 0.15s, color 0.15s',
+  },
+  convMenuDropdown: {
+    position: 'absolute' as const,
+    top: 'calc(100% + 4px)',
+    right: 0,
+    backgroundColor: '#fff',
+    border: '1px solid #e8e8e8',
+    borderRadius: '10px',
+    boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+    minWidth: '140px',
+    padding: '4px 0',
+    zIndex: 300,
+  },
+  convMenuRemove: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    padding: '9px 14px',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontFamily: "'Prompt', sans-serif",
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#c73434',
+    textAlign: 'left' as const,
+    transition: 'background 0.1s',
+  },
   convInfo: { flex: 1, minWidth: 0 },
-  convName: { fontWeight: 700, fontSize: '13px', color: '#222', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  convPreview: { fontSize: '12px', color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  convMeta: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px', flexShrink: 0 },
+  convName: {
+    fontWeight: 700,
+    fontSize: '13px',
+    color: '#222',
+    marginBottom: '2px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  convPreview: {
+    fontSize: '12px',
+    color: '#666',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  convMeta: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: '3px',
+    flexShrink: 0,
+  },
   convTime: { fontSize: '10px', color: '#aaa' },
-  unread: { backgroundColor: '#34C759', color: '#fff', fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '20px', minWidth: '17px', textAlign: 'center' },
+  unread: {
+    backgroundColor: '#34C759',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: 700,
+    padding: '1px 6px',
+    borderRadius: '20px',
+    minWidth: '17px',
+    textAlign: 'center',
+  },
 
-  chatMain: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: '#fff' },
-  empty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px' },
-  emptyCircle: { width: '84px', height: '84px', borderRadius: '50%', backgroundColor: '#52734D', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px' },
+  // ── Chat main panel: header + messages + input, messages is the only scroll area
+  chatMain: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',     // panel itself doesn't scroll
+    backgroundColor: '#fff',
+    minWidth: 0,
+  },
+
+  empty: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+  },
+  emptyCircle: {
+    width: '84px',
+    height: '84px',
+    borderRadius: '50%',
+    backgroundColor: '#52734D',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: '6px',
+  },
   emptyTitle: { fontWeight: 700, fontSize: '18px', color: '#333' },
-  emptySub: { fontSize: '14px', color: '#888', textAlign: 'center', maxWidth: '240px', lineHeight: '1.5' },
+  emptySub: {
+    fontSize: '14px',
+    color: '#888',
+    textAlign: 'center',
+    maxWidth: '240px',
+    lineHeight: '1.5',
+  },
 
-  header: { display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 20px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 },
+  // Header — pinned, flexShrink: 0 so it never gets squeezed
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '13px 20px',
+    borderBottom: '1px solid #f0f0f0',
+    flexShrink: 0,
+  },
   headerInfo: { flex: 1 },
   headerName: { fontWeight: 700, fontSize: '15px', color: '#222' },
-  profileBtn: { background: 'none', border: '1.5px solid #52734D', borderRadius: '20px', padding: '5px 14px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '12px', color: '#52734D', cursor: 'pointer', flexShrink: 0 },
+  profileBtn: {
+    background: 'none',
+    border: '1.5px solid #52734D',
+    borderRadius: '20px',
+    padding: '5px 14px',
+    fontFamily: "'Prompt', sans-serif",
+    fontWeight: 600,
+    fontSize: '12px',
+    color: '#52734D',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
 
-  messages: { flex: 1, overflowY: 'auto', padding: '12px 20px 8px', display: 'flex', flexDirection: 'column' },
-  loadingTxt: { textAlign: 'center', color: '#aaa', fontSize: '14px', marginTop: '40px' },
-  noMsg: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, marginTop: '60px' },
-  ts: { textAlign: 'center', fontSize: '11px', color: '#ccc', margin: '10px 0 2px', fontWeight: 500 },
-  msgRow: { display: 'flex', alignItems: 'flex-end', gap: '7px' },
+  // ── Messages: the ONLY scrollable area in the chat panel
+  messages: {
+    flex: 1,
+    overflowY: 'auto',    // independent scroll
+    minHeight: 0,          // allow flex child to shrink below content size
+    padding: '12px 20px 8px',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+
+  loadingTxt: {
+    textAlign: 'center',
+    color: '#aaa',
+    fontSize: '14px',
+    marginTop: '40px',
+  },
+  noMsg: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    marginTop: '60px',
+  },
+  ts: {
+    textAlign: 'center',
+    fontSize: '11px',
+    color: '#ccc',
+    margin: '10px 0 2px',
+    fontWeight: 500,
+  },
+  msgRow: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    gap: '7px',
+  },
   msgRowMine: { flexDirection: 'row-reverse' },
-  bubble: { padding: '9px 14px', borderRadius: '18px', fontSize: '14px', lineHeight: '1.5', maxWidth: '100%', wordBreak: 'break-word' },
-  bubbleMine: { backgroundColor: '#34C759', color: '#fff', borderBottomRightRadius: '4px' },
-  bubbleOther: { backgroundColor: '#DDFFBC', color: '#222', borderBottomLeftRadius: '4px' },
+  bubble: {
+    padding: '9px 14px',
+    borderRadius: '18px',
+    fontSize: '14px',
+    lineHeight: '1.5',
+    maxWidth: '100%',
+    wordBreak: 'break-word',
+  },
+  bubbleMine: {
+    backgroundColor: '#34C759',
+    color: '#fff',
+    borderBottomRightRadius: '4px',
+  },
+  bubbleOther: {
+    backgroundColor: '#DDFFBC',
+    color: '#222',
+    borderBottomLeftRadius: '4px',
+  },
 
-  inputBar: { display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 20px 16px', borderTop: '1px solid #f0f0f0', flexShrink: 0 },
-  textInput: { flex: 1, padding: '10px 16px', border: '1.5px solid #e0e0e0', borderRadius: '24px', fontFamily: "'Prompt', sans-serif", fontSize: '14px', outline: 'none', backgroundColor: '#fafafa' },
-  sendBtn: { width: '42px', height: '42px', borderRadius: '50%', backgroundColor: '#34C759', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'opacity 0.15s' },
+  // Input bar — pinned to bottom, flexShrink: 0 so messages scroll above it
+  inputBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '12px 20px 16px',
+    borderTop: '1px solid #f0f0f0',
+    flexShrink: 0,          // never shrinks — always visible at the bottom
+    backgroundColor: '#fff',
+  },
+  textInput: {
+    flex: 1,
+    padding: '10px 16px',
+    border: '1.5px solid #e0e0e0',
+    borderRadius: '24px',
+    fontFamily: "'Prompt', sans-serif",
+    fontSize: '14px',
+    outline: 'none',
+    backgroundColor: '#fafafa',
+  },
+  sendBtn: {
+    width: '42px',
+    height: '42px',
+    borderRadius: '50%',
+    backgroundColor: '#34C759',
+    border: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'opacity 0.15s',
+  },
 };
