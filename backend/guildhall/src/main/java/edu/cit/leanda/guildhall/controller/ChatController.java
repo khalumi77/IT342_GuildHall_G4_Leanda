@@ -156,6 +156,42 @@ public class ChatController {
         return ResponseEntity.ok(responseWrapper.ok(messages));
     }
 
+    // ── POST: mark all messages in a conversation as read ─────────────────────
+ 
+    /**
+     * Called by the frontend when a user opens a conversation.
+     * Marks every message in that conversation where the current user is NOT
+     * the sender as isRead = true, clearing the unread badge.
+     */
+    @PostMapping("/conversations/{conversationId}/read")
+    public ResponseEntity<?> markAsRead(
+            @PathVariable Long conversationId,
+            @AuthenticationPrincipal UserDetails ud) {
+ 
+        User me = getMe(ud);
+        Conversation conv = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new IllegalArgumentException("Conversation not found"));
+ 
+        if (!isParticipant(conv, me.getId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(responseWrapper.error("Not a participant"));
+        }
+ 
+        // Fetch all unread messages where the current user is the recipient (not sender)
+        List<DirectMessage> unread = directMessageRepository
+                .findByConversationIdOrderBySentAtAsc(conversationId)
+                .stream()
+                .filter(m -> !m.getSender().getId().equals(me.getId()) && Boolean.FALSE.equals(m.getIsRead()))
+                .collect(java.util.stream.Collectors.toList());
+ 
+        if (!unread.isEmpty()) {
+            unread.forEach(m -> m.setIsRead(true));
+            directMessageRepository.saveAll(unread);
+        }
+ 
+        return ResponseEntity.ok(responseWrapper.ok(java.util.Map.of("marked", unread.size())));
+    }
+
     // ── POST: send message (REST fallback / system messages) ─────────────────
 
     @PostMapping("/conversations/{conversationId}/messages")
