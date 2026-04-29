@@ -230,37 +230,55 @@ public class QuestController {
     }
 
     // ── POST complete quest (commissioner only) ────────────────────────────────
-
+ 
     /**
      * Mark a quest as completed. Only the original poster can do this.
+     * Sends an automated chat notification to the helper with reward details.
      */
     @PostMapping("/api/v1/guilds/{guildId}/quests/{questId}/complete")
     public ResponseEntity<?> completeQuest(
             @PathVariable Long guildId,
             @PathVariable Long questId,
             @AuthenticationPrincipal UserDetails userDetails) {
-
+ 
         User me = getUser(userDetails);
-
+ 
         Quest quest = questRepository.findById(questId)
                 .orElseThrow(() -> new IllegalArgumentException("Quest not found"));
-
+ 
         if (!quest.getGuild().getId().equals(guildId)) return forbidden();
-
-        // Only the commissioner can mark as complete
+ 
         if (!quest.getPoster().getId().equals(me.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(responseWrapper.error("Only the quest commissioner can mark it complete"));
         }
-
+ 
         if (quest.getStatus() != QuestStatus.PENDING) {
             return ResponseEntity.badRequest()
                     .body(responseWrapper.error("Only pending quests can be marked complete"));
         }
-
+ 
         quest.setStatus(QuestStatus.COMPLETED);
         quest = questRepository.save(quest);
-
+ 
+        // Notify the helper via automated chat message
+        if (quest.getHelper() != null) {
+            try {
+                chatController.sendQuestCompletedNotification(
+                        me,
+                        quest.getHelper(),
+                        quest.getId(),
+                        quest.getGuild().getId(),
+                        quest.getTitle(),
+                        quest.getGuild().getName(),
+                        quest.getXpReward(),
+                        quest.getReward()
+                );
+            } catch (Exception ignored) {
+                // Don't fail the completion if the notification fails
+            }
+        }
+ 
         return ResponseEntity.ok(responseWrapper.ok(toMap(quest, me)));
     }
 
