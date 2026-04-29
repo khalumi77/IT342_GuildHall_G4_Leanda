@@ -20,7 +20,7 @@ interface GuildInfo {
 
 type Quest = QuestDetail;
 
-const CATEGORIES = ['Design', 'Academic', 'Caregiving', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
+const CATEGORIES = ['Design', 'Academic', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
 
 // ── Daily quote helpers ───────────────────────────────────────────────────────
 
@@ -174,6 +174,8 @@ export default function GuildDashboard() {
 
   // Complete flow
   const [completing, setCompleting] = useState<number | null>(null);
+  const [completeTarget, setCompleteTarget] = useState<Quest | null>(null);
+  const [completeSuccess, setCompleteSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!guildId) { setNotFound(true); setIsLoading(false); return; }
@@ -243,14 +245,22 @@ export default function GuildDashboard() {
   // ── Complete quest ────────────────────────────────────────────────────────
 
   const handleCompleteQuest = async (questId: number) => {
-    if (!window.confirm('Mark this quest as completed? The helper will be credited.')) return;
-    setCompleting(questId);
+    // Find the quest so we can show reward details in the confirm modal
+    const quest = quests.find(q => q.id === questId) ?? null;
+    setCompleteTarget(quest);
+    // Actual API call happens in confirmComplete after user confirms
+  };
+
+  const confirmComplete = async () => {
+    if (!completeTarget) return;
+    setCompleting(completeTarget.id);
+    setCompleteTarget(null);
     try {
-      const res = await api.post(`/guilds/${guildId}/quests/${questId}/complete`);
+      const res = await api.post(`/guilds/${guildId}/quests/${completeTarget.id}/complete`);
       const updated: Quest = res.data?.data ?? res.data;
-      setQuests(prev => prev.filter(q => q.id !== questId));
+      setQuests(prev => prev.filter(q => q.id !== completeTarget.id));
       setSelectedQuest(null);
-      alert(`✓ Quest marked as completed! ${updated.helperUsername ?? 'The helper'} has been credited.`);
+      setCompleteSuccess(updated.helperUsername ?? 'The helper');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       alert(e?.response?.data?.error?.message || 'Failed to mark quest complete.');
@@ -445,7 +455,6 @@ export default function GuildDashboard() {
   // ── Filter ────────────────────────────────────────────────────────────────
 
   const visibleQuests = quests.filter(q => q.status !== 'COMPLETED' && q.status !== 'CANCELLED');
-  const acceptedCount = visibleQuests.filter(q => q.status === 'PENDING' && q.acceptedByMe).length;
 
   const filtered = visibleQuests.filter(q => {
     const matchSearch = q.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -486,6 +495,23 @@ export default function GuildDashboard() {
             navigate(`/chat?questId=${acceptedQuest.id}`);
           }}
           onClose={() => setAcceptedQuest(null)}
+        />
+      )}
+
+      {/* Complete quest confirmation modal */}
+      {completeTarget && (
+        <CompleteConfirmModal
+          quest={completeTarget}
+          onConfirm={confirmComplete}
+          onCancel={() => setCompleteTarget(null)}
+        />
+      )}
+
+      {/* Complete success modal */}
+      {completeSuccess && (
+        <CompleteSuccessModal
+          helperName={completeSuccess}
+          onClose={() => setCompleteSuccess(null)}
         />
       )}
 
@@ -553,9 +579,6 @@ export default function GuildDashboard() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div style={s.limitHint}>
-              Accepted quests: <strong>{acceptedCount}/3</strong> in this guild. You can hold up to 3 active quests per guild at a time.
             </div>
           </div>
 
@@ -663,6 +686,205 @@ export default function GuildDashboard() {
     </div>
   );
 }
+
+// ── Quest Completion Confirm Modal ────────────────────────────────────────────
+
+function CompleteConfirmModal({ quest, onConfirm, onCancel }: {
+  quest: Quest;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const isPaid = quest.questType === 'PAID';
+
+  return (
+    <div style={cm.overlay} onClick={onCancel}>
+      <div style={cm.modal} onClick={e => e.stopPropagation()}>
+        {/* Icon */}
+        <div style={cm.iconWrap}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+
+        {/* Title */}
+        <h2 style={cm.title}>Mark Quest as Complete?</h2>
+
+        {/* Quest name */}
+        <div style={cm.questName}>"{quest.title}"</div>
+
+        {/* Body text */}
+        <p style={cm.body}>
+          Confirming this means <strong>{quest.helperUsername ?? 'the helper'}</strong> successfully completed the work.
+          They'll receive an automated reward summary in chat.
+        </p>
+
+        {/* Reward summary box */}
+        <div style={cm.rewardBox}>
+          <div style={cm.rewardLabel}>Rewards to be granted:</div>
+          <div style={cm.rewardRow}>
+            <span style={cm.rewardItem}>
+              +{quest.xpReward ?? 20} XP
+            </span>
+            {isPaid && quest.reward != null && (
+              <span style={cm.rewardItem}>
+                ₱{Number(quest.reward).toLocaleString()}
+              </span>
+            )}
+            {!isPaid && (
+              <span style={{ ...cm.rewardItem, color: '#888' }}>
+                Volunteer quest — no monetary reward
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={cm.actions}>
+          <button style={cm.cancelBtn} onClick={onCancel}>Cancel</button>
+          <button style={cm.confirmBtn} onClick={onConfirm}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Yes, Mark Complete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const cm: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 600, padding: '24px',
+  },
+  modal: {
+    backgroundColor: '#fff', borderRadius: '20px', padding: '32px 28px',
+    maxWidth: '420px', width: '100%',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.25)',
+    fontFamily: "'Prompt', sans-serif",
+    display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+    gap: '14px',
+  },
+  iconWrap: {
+    width: '60px', height: '60px', borderRadius: '50%',
+    backgroundColor: '#DDFFBC',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    marginBottom: '4px',
+  },
+  title: {
+    fontWeight: 700, fontSize: '20px', color: '#1a1a1a', margin: 0,
+  },
+  questName: {
+    fontSize: '14px', color: '#52734D', fontWeight: 600,
+    backgroundColor: '#DDFFBC', padding: '6px 16px', borderRadius: '20px',
+  },
+  body: {
+    fontSize: '14px', color: '#555', lineHeight: '1.6', margin: 0,
+  },
+  rewardBox: {
+    width: '100%', backgroundColor: '#f9fdf5',
+    border: '1.5px solid #DDFFBC', borderRadius: '12px',
+    padding: '14px 18px', textAlign: 'left',
+  },
+  rewardLabel: {
+    fontSize: '11px', fontWeight: 700, color: '#52734D',
+    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '10px',
+  },
+  rewardRow: {
+    display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap',
+  },
+  rewardItem: {
+    display: 'flex', alignItems: 'center', gap: '6px',
+    fontSize: '15px', fontWeight: 700, color: '#34C759',
+  },
+  actions: {
+    display: 'flex', gap: '12px', width: '100%', marginTop: '4px',
+  },
+  cancelBtn: {
+    flex: 1, background: 'none', border: '1.5px solid #ddd',
+    borderRadius: '12px', padding: '12px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px',
+    color: '#666', cursor: 'pointer',
+  },
+  confirmBtn: {
+    flex: 2, backgroundColor: '#34C759', color: '#fff',
+    border: 'none', borderRadius: '12px', padding: '12px 20px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px',
+    cursor: 'pointer', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', gap: '8px',
+  },
+};
+
+// ── Quest Completion Success Modal ────────────────────────────────────────────
+
+function CompleteSuccessModal({ helperName, onClose }: {
+  helperName: string;
+  onClose: () => void;
+}) {
+  return (
+    <div style={csm.overlay} onClick={onClose}>
+      <div style={csm.modal} onClick={e => e.stopPropagation()}>
+        {/* Icon */}
+        <div style={csm.iconWrap}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+
+        {/* Title */}
+        <h2 style={csm.title}>Quest Marked Complete!</h2>
+
+        {/* Body text */}
+        <p style={csm.body}>
+          <strong>{helperName}</strong> has been credited with the quest reward.
+        </p>
+
+        {/* Close button */}
+        <button style={csm.closeBtn} onClick={onClose}>
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const csm: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 600, padding: '24px',
+  },
+  modal: {
+    backgroundColor: '#fff', borderRadius: '20px', padding: '32px 28px',
+    maxWidth: '380px', width: '100%',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.25)',
+    fontFamily: "'Prompt', sans-serif",
+    display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+    gap: '14px',
+  },
+  iconWrap: {
+    width: '60px', height: '60px', borderRadius: '50%',
+    backgroundColor: '#DDFFBC',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    marginBottom: '4px',
+  },
+  title: {
+    fontWeight: 700, fontSize: '20px', color: '#166534', margin: 0,
+  },
+  body: {
+    fontSize: '14px', color: '#555', lineHeight: '1.6', margin: 0,
+  },
+  closeBtn: {
+    backgroundColor: '#34C759', color: '#fff',
+    border: 'none', borderRadius: '12px', padding: '12px 24px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px',
+    cursor: 'pointer', width: '100%', marginTop: '8px',
+  },
+};
 
 // ── Shared Quest Form Modal ───────────────────────────────────────────────────
 
@@ -927,7 +1149,6 @@ const s: Record<string, React.CSSProperties> = {
   searchIcon: { position: 'absolute', left: '11px', pointerEvents: 'none' },
   searchInput: { width: '100%', padding: '8px 12px 8px 32px', border: '1.5px solid #e8e8e8', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '13px', outline: 'none', backgroundColor: '#fafafa', boxSizing: 'border-box' },
   statusFilters: { display: 'flex', gap: '6px', flexShrink: 0 },
-  limitHint: { marginTop: '10px', color: '#516144', fontSize: '13px', lineHeight: 1.5, padding: '0 2px' },
   filterChip: { background: '#f5f5f5', border: '1.5px solid #e8e8e8', borderRadius: '20px', padding: '5px 12px', fontFamily: "'Prompt', sans-serif", fontSize: '12px', fontWeight: 600, color: '#666', cursor: 'pointer' },
   filterChipActive: { backgroundColor: '#52734D', borderColor: '#52734D', color: '#fff' },
   questGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', padding: '16px 20px 20px' },

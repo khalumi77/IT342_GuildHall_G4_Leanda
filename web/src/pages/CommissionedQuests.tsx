@@ -12,7 +12,7 @@ type CommissionedQuest = QuestDetail & {
   guildName: string;
 };
 
-const CATEGORIES = ['Design', 'Academic', 'Caregiving', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
+const CATEGORIES = ['Design', 'Academic', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
 
 interface QuestFormState {
   title: string;
@@ -48,6 +48,7 @@ export default function CommissionedQuests() {
   const [selectedQuest, setSelectedQuest] = useState<CommissionedQuest | null>(null);
   const [completing, setCompleting] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [completeTarget, setCompleteTarget] = useState<CommissionedQuest | null>(null);
 
   // Edit modal
   const [showEditForm, setShowEditForm] = useState(false);
@@ -217,14 +218,21 @@ export default function CommissionedQuests() {
 
   // ── Complete / Delete ───────────────────────────────────────────────────────
 
-  const handleComplete = async (quest: CommissionedQuest) => {
-    if (!window.confirm(`Mark "${quest.title}" as completed? This confirms ${quest.helperUsername ?? 'the helper'} did the work.`)) return;
-    setCompleting(quest.id);
+  const handleComplete = (quest: CommissionedQuest) => {
+    // Show custom confirm modal instead of browser confirm()
+    setCompleteTarget(quest);
+    setSelectedQuest(null); // close detail modal if open
+  };
+
+  const confirmComplete = async () => {
+    if (!completeTarget) return;
+    setCompleting(completeTarget.id);
+    setCompleteTarget(null);
     try {
-      const res = await api.post(`/guilds/${quest.guildId}/quests/${quest.id}/complete`);
+      const res = await api.post(`/guilds/${completeTarget.guildId}/quests/${completeTarget.id}/complete`);
       const updated = res.data?.data ?? res.data;
-      setQuests(prev => prev.map(q => q.id === quest.id ? { ...q, ...updated } : q));
-      setSelectedQuest(prev => prev?.id === quest.id ? { ...prev, ...updated } : prev);
+      setQuests(prev => prev.map(q => q.id === completeTarget.id ? { ...q, ...updated } : q));
+      setSelectedQuest(prev => prev?.id === completeTarget.id ? { ...prev, ...updated } : prev);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       alert(e?.response?.data?.error?.message || 'Failed to mark quest complete.');
@@ -291,6 +299,15 @@ export default function CommissionedQuests() {
           completing={completing === selectedQuest.id}
           deleting={deleting === selectedQuest.id}
           showGuildLink={true}
+        />
+      )}
+
+      {/* Complete quest confirmation modal */}
+      {completeTarget && (
+        <CompleteConfirmModal
+          quest={completeTarget}
+          onConfirm={confirmComplete}
+          onCancel={() => setCompleteTarget(null)}
         />
       )}
 
@@ -668,4 +685,125 @@ const s: Record<string, React.CSSProperties> = {
   modalFooter: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px', paddingTop: '16px', borderTop: '1px solid #f0f0f0' },
   cancelBtn: { background: 'none', border: '1.5px solid #ddd', borderRadius: '20px', padding: '9px 22px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px', color: '#777', cursor: 'pointer' },
   saveBtn: { backgroundColor: '#52734D', color: '#fff', border: 'none', borderRadius: '20px', padding: '9px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
+};
+
+// ── Quest Completion Confirm Modal ────────────────────────────────────────────
+
+function CompleteConfirmModal({ quest, onConfirm, onCancel }: {
+  quest: { title: string; helperUsername: string | null; questType: string; reward: number | null; xpReward: number };
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const isPaid = quest.questType === 'PAID';
+
+  return (
+    <div style={cm.overlay} onClick={onCancel}>
+      <div style={cm.modal} onClick={e => e.stopPropagation()}>
+        <div style={cm.iconWrap}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+
+        <h2 style={cm.title}>Mark Quest as Complete?</h2>
+
+        <div style={cm.questName}>"{quest.title}"</div>
+
+        <p style={cm.body}>
+          Confirming this means <strong>{quest.helperUsername ?? 'the helper'}</strong> successfully
+          completed the work. They'll receive an automated reward summary in chat.
+        </p>
+
+        <div style={cm.rewardBox}>
+          <div style={cm.rewardLabel}>Rewards to be granted:</div>
+          <div style={cm.rewardRow}>
+            <span style={cm.rewardItem}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+              +{quest.xpReward ?? 20} XP
+            </span>
+            {isPaid && quest.reward != null ? (
+              <span style={cm.rewardItem}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="1" x2="12" y2="23"/>
+                  <path d="M17 6H8a2 2 0 0 0 0 4h8"/>
+                  <path d="M17 14H8a2 2 0 0 0 0 4h5"/>
+                </svg>
+                ₱{Number(quest.reward).toLocaleString()}
+              </span>
+            ) : (
+              <span style={{ ...cm.rewardItem, color: '#888', fontWeight: 500, fontSize: '13px' }}>
+                Volunteer quest — no monetary reward
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div style={cm.actions}>
+          <button style={cm.cancelBtn} onClick={onCancel}>Cancel</button>
+          <button style={cm.confirmBtn} onClick={onConfirm}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Yes, Mark Complete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const cm: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 600, padding: '24px',
+  },
+  modal: {
+    backgroundColor: '#fff', borderRadius: '20px', padding: '32px 28px',
+    maxWidth: '420px', width: '100%',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.25)',
+    fontFamily: "'Prompt', sans-serif",
+    display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+    gap: '14px',
+  },
+  iconWrap: {
+    width: '60px', height: '60px', borderRadius: '50%',
+    backgroundColor: '#DDFFBC',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    marginBottom: '4px',
+  },
+  title: { fontWeight: 700, fontSize: '20px', color: '#1a1a1a', margin: 0 },
+  questName: {
+    fontSize: '14px', color: '#52734D', fontWeight: 600,
+    backgroundColor: '#DDFFBC', padding: '6px 16px', borderRadius: '20px',
+  },
+  body: { fontSize: '14px', color: '#555', lineHeight: '1.6', margin: 0 },
+  rewardBox: {
+    width: '100%', backgroundColor: '#f9fdf5',
+    border: '1.5px solid #DDFFBC', borderRadius: '12px',
+    padding: '14px 18px', textAlign: 'left',
+  },
+  rewardLabel: {
+    fontSize: '11px', fontWeight: 700, color: '#52734D',
+    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '10px',
+  },
+  rewardRow: { display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' },
+  rewardItem: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '15px', fontWeight: 700, color: '#34C759' },
+  actions: { display: 'flex', gap: '12px', width: '100%', marginTop: '4px' },
+  cancelBtn: {
+    flex: 1, background: 'none', border: '1.5px solid #ddd',
+    borderRadius: '12px', padding: '12px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px',
+    color: '#666', cursor: 'pointer',
+  },
+  confirmBtn: {
+    flex: 2, backgroundColor: '#34C759', color: '#fff',
+    border: 'none', borderRadius: '12px', padding: '12px 20px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px',
+    cursor: 'pointer', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', gap: '8px',
+  },
 };

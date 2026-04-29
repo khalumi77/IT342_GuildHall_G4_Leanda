@@ -270,6 +270,47 @@ public class ChatController {
         return outgoing;
     }
 
+    /**
+     * Called from QuestController after a quest is marked COMPLETED by the poster.
+     * Sends a SYSTEM message to the helper summarising their rewards.
+     */
+    public Map<String, Object> sendQuestCompletedNotification(
+            User poster,
+            User helper,
+            Long questId,
+            Long guildId,
+            String questTitle,
+            String guildName,
+            Integer xpReward,
+            java.math.BigDecimal monetaryReward) {
+ 
+        Conversation conv = getOrCreate(poster, helper);
+ 
+        // Build reward summary line
+        StringBuilder rewardLine = new StringBuilder();
+        rewardLine.append("+").append(xpReward != null ? xpReward : 20).append(" XP");
+        if (monetaryReward != null && monetaryReward.compareTo(java.math.BigDecimal.ZERO) > 0) {
+            rewardLine.append(" · ₱").append(monetaryReward.stripTrailingZeros().toPlainString());
+        }
+ 
+        String content = "The quest completion has been verified. Rewards: " + rewardLine;
+ 
+        DirectMessage msg = DirectMessage.builder()
+                .conversation(conv).sender(poster).content(content)
+                .messageType(DirectMessage.MessageType.SYSTEM)
+                .questId(questId).guildId(guildId)
+                .questTitle(questTitle).guildName(guildName)
+                .isRead(false).sentAt(java.time.LocalDateTime.now())
+                .build();
+        msg = directMessageRepository.save(msg);
+ 
+        Map<String, Object> outgoing = buildMessageMap(msg);
+        messagingTemplate.convertAndSend("/topic/conversation/" + conv.getId(), outgoing);
+        broadcastSidebarUpdate(conv, helper, poster);
+        broadcastSidebarUpdate(conv, poster, helper);
+        return outgoing;
+    }
+
     // ── GET: user search ──────────────────────────────────────────────────────
 
     @GetMapping("/users/search")
