@@ -6,6 +6,7 @@ import api from '../api/authApi';
 import { supabase } from '../api/supabaseClient';
 import QuestDetailModal, { type QuestDetail, StatusBadge } from '../components/QuestDetailModal';
 import { useAuth } from '../context/AuthContext';
+import { paymentApi } from '../api/paymentApi';
 
 type CommissionedQuest = QuestDetail & {
   guildId: number;
@@ -42,7 +43,8 @@ export default function CommissionedQuests() {
   const { user } = useAuth();
   const [quests, setQuests] = useState<CommissionedQuest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'PENDING' | 'COMPLETED'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'PENDING_PAYMENT' | 'OPEN' | 'PENDING' | 'COMPLETED'>('ALL');
+  const [payingId, setPayingId] = useState<number | null>(null);
 
   // Detail modal
   const [selectedQuest, setSelectedQuest] = useState<CommissionedQuest | null>(null);
@@ -261,6 +263,19 @@ export default function CommissionedQuests() {
     try { return new Date(dateStr).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }); }
     catch { return ''; }
   };
+
+  const handlePay = async (quest: CommissionedQuest) => {
+  setPayingId(quest.id);
+  try {
+    const res = await paymentApi.createSession(quest.id);
+    const { checkoutUrl } = res.data.data;
+    // Redirect to Stripe Checkout
+    window.location.href = checkoutUrl;
+  } catch (err: any) {
+    alert(err?.response?.data?.error?.message || 'Failed to initiate payment.');
+    setPayingId(null);
+  }
+};
 
   const filtered = quests.filter(q => filter === 'ALL' || q.status === filter);
   const openCount = quests.filter(q => q.status === 'OPEN').length;
@@ -492,16 +507,14 @@ export default function CommissionedQuests() {
 
         {/* Filter tabs */}
         <div style={s.tabRow}>
-          {(['ALL', 'OPEN', 'PENDING', 'COMPLETED'] as const).map(f => (
-            <button
-              key={f}
-              style={{ ...s.tab, ...(filter === f ? s.tabActive : {}) }}
-              onClick={() => setFilter(f)}
-            >
+          {(['ALL', 'PENDING_PAYMENT', 'OPEN', 'PENDING', 'COMPLETED'] as const).map(f => (
+            <button key={f} style={{ ...s.tab, ...(filter === f ? s.tabActive : {}) }}
+              onClick={() => setFilter(f)}>
               {f === 'ALL' ? `All (${quests.length})` :
-               f === 'OPEN' ? `Open (${openCount})` :
-               f === 'PENDING' ? `Pending (${pendingCount})` :
-               `Completed (${completedCount})`}
+              f === 'PENDING_PAYMENT' ? `Unpaid (${quests.filter(q => q.status === 'PENDING_PAYMENT').length})` :
+              f === 'OPEN' ? `Open (${openCount})` :
+              f === 'PENDING' ? `Pending (${pendingCount})` :
+              `Completed (${completedCount})`}
             </button>
           ))}
         </div>
@@ -584,6 +597,20 @@ export default function CommissionedQuests() {
                         {quest.attachmentName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? '🖼️' : '📄'}
                         <span style={s.attachName}>{quest.attachmentName}</span>
                       </div>
+                    )}
+
+                    {quest.status === 'PENDING_PAYMENT' && (
+                      <button
+                        style={{
+                          ...s.payBtn,
+                          opacity: payingId === quest.id ? 0.7 : 1,
+                          cursor: payingId === quest.id ? 'not-allowed' : 'pointer',
+                        }}
+                        onClick={e => { e.stopPropagation(); handlePay(quest); }}
+                        disabled={payingId === quest.id}
+                      >
+                        {payingId === quest.id ? '⏳ Redirecting...' : '💳 Pay to Publish'}
+                      </button>
                     )}
 
                     <div style={s.actionBtns}>

@@ -55,7 +55,8 @@ public class SecurityConfig {
                     // /init  → browser visits this to start the flow
                     // /callback → Google redirects here with the auth code
                     "/api/v1/auth/google/init",
-                    "/api/v1/auth/google/callback"
+                    "/api/v1/auth/google/callback",
+                    "/api/payments/webhook"
                 ).permitAll()
                 .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_GUILDMASTER")
                 .anyRequest().authenticated()

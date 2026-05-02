@@ -6,7 +6,7 @@ import java.util.Optional;
 import java.util.List;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
-    Optional<Payment> findByStripeSessionId(String stripeSessionId);
+    Optional<Payment> findByPaymongoSessionId(String paymongoSessionId);
     List<Payment> findByPayerId(Long payerId);
     Optional<Payment> findByQuestId(Long questId);
 }

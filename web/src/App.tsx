@@ -16,6 +16,8 @@ import CommissionedQuests from './pages/CommissionedQuests';
 import AcceptedQuests from './pages/AcceptedQuests';
 import GoogleCallback from './pages/GoogleCallback';
 import Chat from './pages/Chat';
+import PaymentSuccess from './pages/PaymentSuccess';
+import PaymentCancel from './pages/PaymentCancel';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
@@ -127,6 +129,8 @@ export default function App() {
 
           {/* Catch-all — send unknown routes to landing */}
           <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/payment/success" element={<PrivateRoute><PaymentSuccess /></PrivateRoute>} />
+          <Route path="/payment/cancel"  element={<PrivateRoute><PaymentCancel /></PrivateRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

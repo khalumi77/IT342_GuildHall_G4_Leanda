@@ -58,7 +58,7 @@ public class QuestController {
         List<Map<String, Object>> quests = questRepository
                 .findByGuildId(guildId)
                 .stream()
-                .filter(q -> q.getStatus() != QuestStatus.CANCELLED)
+                .filter(q -> q.getStatus() != QuestStatus.CANCELLED && q.getStatus() != QuestStatus.PENDING_PAYMENT)
                 .map(q -> toMap(q, me))
                 .collect(Collectors.toList());
 
@@ -112,7 +112,7 @@ public class QuestController {
                 .description(description.trim())
                 .questType(questType)
                 .reward(reward)
-                .status(QuestStatus.OPEN)
+                .status(questType == QuestType.PAID ? QuestStatus.PENDING_PAYMENT : QuestStatus.OPEN)
                 .xpReward(20)
                 .attachmentName(attachName)
                 .attachmentPath(attachData)
