@@ -26,7 +26,7 @@ public class Payment {
     private User payer;
 
     @Column(name = "stripe_session_id")
-    private String stripeSessionId;
+    private String paymongoSessionId;
 
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal amount;

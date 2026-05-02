@@ -56,6 +56,7 @@ interface QuestDetailModalProps {
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
   OPEN:      { label: 'Open',       color: '#166534', bg: '#dcfce7', dot: '●' },
   PENDING:   { label: 'Pending',    color: '#92400e', bg: '#fef3c7', dot: '◐' },
+  PENDING_PAYMENT: { label: 'Awaiting Payment', color: '#92400e', bg: '#fef3c7', dot: '💳' },
   COMPLETED: { label: 'Completed',  color: '#1e3a5f', bg: '#dbeafe', dot: '✓' },
   CANCELLED: { label: 'Cancelled',  color: '#6b7280', bg: '#f3f4f6', dot: '✕' },
 };
