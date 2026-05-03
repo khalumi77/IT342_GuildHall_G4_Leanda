@@ -288,9 +288,10 @@ export default function CommissionedQuests() {
 
   // Notice banner for the edit modal — amber for pending, blue for open
   const editNotice = editingQuest?.status === 'PENDING'
-    ? { text: `⚠️ This quest is in progress — ${editingQuest.helperUsername ?? 'the helper'} will be notified of your changes via chat.`, bg: '#fef3c7', border: '#fde68a', color: '#92400e' }
-    : { text: '✏️ Only open and pending quests can be edited.', bg: '#f0f9ff', border: '#bae6fd', color: '#0369a1' };
-
+  ? { text: `⚠️ This quest is in progress — ${editingQuest.helperUsername ?? 'the helper'} will be notified of your changes via chat.`, bg: '#fef3c7', border: '#fde68a', color: '#92400e' }
+  : editingQuest?.status === 'PENDING_PAYMENT'
+  ? { text: '💳 This quest is awaiting payment. You can still edit details before paying.', bg: '#fef3c7', border: '#fde68a', color: '#92400e' }
+  : { text: '✏️ Only open and pending quests can be edited.', bg: '#f0f9ff', border: '#bae6fd', color: '#0369a1' };
   return (
     <div style={s.page}>
       <Navbar />
@@ -539,7 +540,7 @@ export default function CommissionedQuests() {
         ) : (
           <div style={s.list}>
             {filtered.map(quest => {
-              const canEdit = quest.status === 'OPEN' || quest.status === 'PENDING';
+              const canEdit = quest.status === 'OPEN' || quest.status === 'PENDING' || quest.status === 'PENDING_PAYMENT';
               return (
                 <div key={quest.id} style={s.card}>
                   {/* Left clickable area → detail modal */}
@@ -683,6 +684,7 @@ const s: Record<string, React.CSSProperties> = {
   xpText: { fontWeight: 700, fontSize: '12px', color: '#52734D' },
   attachBadge: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#666', maxWidth: '120px' },
   attachName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  payBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '14px', padding: '10px 16px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '13px', cursor: 'pointer', boxShadow: '0 8px 18px rgba(52,199,89,0.18)', transition: 'transform 0.15s ease, opacity 0.15s ease' },
   actionBtns: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' },
   editBtn: { position: 'relative', backgroundColor: '#52734D', color: '#fff', border: 'none', borderRadius: '8px', padding: '5px 12px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' },
   editPendingDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#fbbf24', display: 'inline-block', flexShrink: 0 },
