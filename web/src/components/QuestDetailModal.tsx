@@ -275,6 +275,18 @@ export default function QuestDetailModal({
             </div>
           )}
 
+          {quest.status === 'PENDING_PAYMENT' && !isOwn && (
+            <div style={{ ...m.helperBanner, backgroundColor: '#fef3c7', border: '1px solid #fde68a', color: '#92400e' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              This quest is awaiting payment from the commissioner before it goes live.
+              Message them to discuss the reward.
+            </div>
+          )}
+
           <div style={m.divider} />
 
           {/* Description */}
@@ -386,6 +398,25 @@ export default function QuestDetailModal({
                     <polyline points="9 22 9 12 15 12 15 22"/>
                   </svg>
                   Go to Guild
+                </button>
+              )}
+
+              {quest.status === 'PENDING_PAYMENT' && !isOwn && (
+                <button
+                  style={{
+                    ...m.guildLinkBtn,
+                    backgroundColor: '#52734D', color: '#fff', border: 'none',
+                  }}
+                  onClick={() => {
+                    onClose();
+                    // Navigate to chat — the poster's userId is quest.posterId
+                    window.location.href = `/chat`;
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  Message Commissioner
                 </button>
               )}
             </div>

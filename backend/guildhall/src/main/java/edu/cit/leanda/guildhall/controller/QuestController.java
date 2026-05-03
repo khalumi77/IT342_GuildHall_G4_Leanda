@@ -58,7 +58,7 @@ public class QuestController {
         List<Map<String, Object>> quests = questRepository
                 .findByGuildId(guildId)
                 .stream()
-                .filter(q -> q.getStatus() != QuestStatus.CANCELLED && q.getStatus() != QuestStatus.PENDING_PAYMENT)
+                .filter(q -> q.getStatus() != QuestStatus.CANCELLED)
                 .map(q -> toMap(q, me))
                 .collect(Collectors.toList());
 
@@ -366,7 +366,9 @@ public class QuestController {
                     .body(responseWrapper.error("You can only edit your own quests"));
         }
  
-        if (quest.getStatus() != QuestStatus.OPEN && quest.getStatus() != QuestStatus.PENDING) {
+        if (quest.getStatus() != QuestStatus.OPEN
+                && quest.getStatus() != QuestStatus.PENDING
+                && quest.getStatus() != QuestStatus.PENDING_PAYMENT) {
             return ResponseEntity.badRequest()
                     .body(responseWrapper.error("Only open or pending quests can be edited"));
         }

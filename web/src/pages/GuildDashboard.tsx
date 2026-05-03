@@ -1037,7 +1037,7 @@ function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComple
   const isOwn = quest.posterId === currentUserId;
   const isTaken = quest.status === 'PENDING';
   const isOpen = quest.status === 'OPEN';
-  const canEdit = isOwn && (isOpen || isTaken); // ← OPEN or PENDING
+  const canEdit = isOwn && (isOpen || isTaken || quest.status === 'PENDING_PAYMENT');
   const hasImage = !!(quest.attachmentName?.match(/\.(jpg|jpeg|png|gif|webp)$/i)) && !!quest.attachmentData;
   const hasPdf = !!(quest.attachmentName?.match(/\.pdf$/i)) && !!quest.attachmentData;
 
@@ -1103,6 +1103,9 @@ function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComple
               onClick={e => { e.stopPropagation(); onAccept(); }} disabled={accepting}>
               {accepting ? '...' : 'Accept'}
             </button>
+          )}
+          {!isOwn && quest.status === 'PENDING_PAYMENT' && (
+            <span style={cs.awaitingPayBadge}>💳 Awaiting Payment</span>
           )}
           {!isOwn && isTaken && !quest.acceptedByMe && (
             <span style={cs.takenBadge}>Taken</span>
@@ -1209,5 +1212,11 @@ const cs: Record<string, React.CSSProperties> = {
   acceptCardBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 12px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
   completeCardBtn: { backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
   takenBadge: { backgroundColor: '#6b7280', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
+  awaitingPayBadge: {
+  backgroundColor: '#fef3c7', color: '#92400e',
+  fontSize: '11px', fontWeight: 700,
+  padding: '3px 10px', borderRadius: '20px',
+  border: '1px solid #fde68a',
+},
   myQuestBadge: { backgroundColor: '#1e3a5f', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
 };
