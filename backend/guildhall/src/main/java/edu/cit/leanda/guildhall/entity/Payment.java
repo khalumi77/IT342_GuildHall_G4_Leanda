@@ -25,7 +25,7 @@ public class Payment {
     @JoinColumn(name = "payer_id", nullable = false)
     private User payer;
 
-    @Column(name = "stripe_session_id")
+    @Column(name = "paymongo_session_id")
     private String paymongoSessionId;
 
     @Column(nullable = false, precision = 10, scale = 2)
