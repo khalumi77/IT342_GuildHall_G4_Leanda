@@ -1,10 +1,10 @@
 // src/pages/AcceptedQuests.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import api from '../api/authApi';
-import QuestDetailModal, { type QuestDetail, StatusBadge } from '../components/QuestDetailModal';
-import { useAuth } from '../context/AuthContext';
+import Navbar from '../../shared/components/Navbar';
+import api from '../auth/authApi';
+import QuestDetailModal, { type QuestDetail, StatusBadge } from './QuestDetailModal';
+import { useAuth } from '../auth/AuthContext';
 
 type AcceptedQuest = QuestDetail & {
   guildId: number;
@@ -220,3 +220,4 @@ const s: Record<string, React.CSSProperties> = {
   attachName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   viewHint: { fontSize: '12px', color: '#52734D', fontWeight: 600 },
 };
+

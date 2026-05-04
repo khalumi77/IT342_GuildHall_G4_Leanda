@@ -1,12 +1,12 @@
 // src/pages/CommissionedQuests.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import api from '../api/authApi';
-import { supabase } from '../api/supabaseClient';
-import QuestDetailModal, { type QuestDetail, StatusBadge } from '../components/QuestDetailModal';
-import { useAuth } from '../context/AuthContext';
-import { paymentApi } from '../api/paymentApi';
+import Navbar from '../../shared/components/Navbar';
+import api from '../auth/authApi';
+import { supabase } from '../../shared/api/supabaseClient';
+import QuestDetailModal, { type QuestDetail, StatusBadge } from './QuestDetailModal';
+import { useAuth } from '../auth/AuthContext';
+import { paymentApi } from '../payment/paymentApi';
 
 type CommissionedQuest = QuestDetail & {
   guildId: number;
@@ -836,3 +836,4 @@ const cm: Record<string, React.CSSProperties> = {
     justifyContent: 'center', gap: '8px',
   },
 };
+

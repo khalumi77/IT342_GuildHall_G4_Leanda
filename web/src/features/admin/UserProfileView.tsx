@@ -2,8 +2,8 @@
 // Read-only profile view — used by admins to view any user's profile.
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import api from '../api/authApi';
+import Navbar from '../../shared/components/Navbar';
+import api from './adminApi';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

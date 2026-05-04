@@ -1,7 +1,7 @@
 // src/components/Navbar.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../../features/auth/AuthContext';
 
 export default function Navbar() {
   const navigate = useNavigate();

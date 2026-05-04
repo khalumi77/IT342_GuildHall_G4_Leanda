@@ -1,8 +1,8 @@
 // src/pages/PaymentSuccess.tsx
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { paymentApi } from '../api/paymentApi';
-import Navbar from '../components/Navbar';
+import { paymentApi } from './paymentApi';
+import Navbar from '../../shared/components/Navbar';
 
 export default function PaymentSuccess() {
   const navigate = useNavigate();

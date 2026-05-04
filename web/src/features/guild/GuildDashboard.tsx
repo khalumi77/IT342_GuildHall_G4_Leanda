@@ -1,11 +1,11 @@
 // src/pages/GuildDashboard.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import Navbar from '../components/Navbar';
-import api from '../api/authApi';
-import { supabase } from '../api/supabaseClient';
-import QuestDetailModal, { type QuestDetail, StatusBadge } from '../components/QuestDetailModal';
+import { useAuth } from '../auth/AuthContext';
+import Navbar from '../../shared/components/Navbar';
+import api from '../auth/authApi';
+import { supabase } from '../../shared/api/supabaseClient';
+import QuestDetailModal, { type QuestDetail, StatusBadge } from '../quest/QuestDetailModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

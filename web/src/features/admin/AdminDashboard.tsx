@@ -1,8 +1,8 @@
 // src/pages/AdminDashboard.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import api from '../api/authApi';
+import Navbar from '../../shared/components/Navbar';
+import api from './adminApi';
 
 interface Guild {
   id: number;

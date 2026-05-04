@@ -1,8 +1,8 @@
 // src/pages/Register.tsx
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import GoogleSignInButton from '../components/GoogleSignInButton';
+import { useAuth } from './AuthContext';
+import GoogleSignInButton from './GoogleSignInButton';
 
 export default function Register() {
   const navigate = useNavigate();

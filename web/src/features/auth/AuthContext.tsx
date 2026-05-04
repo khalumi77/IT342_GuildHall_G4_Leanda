@@ -1,8 +1,8 @@
 // src/context/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { authApi } from '../api/authApi';
-import type { UserDto } from '../api/authApi';
+import { authApi } from './authApi';
+import type { UserDto } from './authApi';
 
 interface AuthContextType {
   user: UserDto | null;
@@ -127,3 +127,4 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+

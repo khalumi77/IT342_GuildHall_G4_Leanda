@@ -1,7 +1,7 @@
 // src/pages/BrowseGuilds.tsx
 import React, { useState, useEffect } from 'react';
-import Navbar from '../components/Navbar';
-import api from '../api/authApi';
+import Navbar from '../../shared/components/Navbar';
+import api from '../auth/authApi';
 
 interface Guild {
   id: number;

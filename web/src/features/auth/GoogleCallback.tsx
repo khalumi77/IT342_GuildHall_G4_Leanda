@@ -9,8 +9,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { authApi } from '../api/authApi';
+import { useAuth } from './AuthContext';
+import { authApi } from './authApi';
 
 export default function GoogleCallback() {
   const navigate = useNavigate();

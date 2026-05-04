@@ -6,9 +6,9 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import Navbar from '../components/Navbar';
-import api from '../api/authApi';
+import { useAuth } from '../auth/AuthContext';
+import Navbar from '../../shared/components/Navbar';
+import api from '../auth/authApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

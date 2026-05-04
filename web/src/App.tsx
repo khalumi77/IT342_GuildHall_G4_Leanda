@@ -1,23 +1,23 @@
 // src/App.tsx
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import Landing from './pages/Landing';
-import Register from './pages/Register';
-import Login from './pages/Login';
-import SkillsSelection from './pages/SkillsSelection';
-import Guilds from './pages/Guilds';
-import BrowseGuilds from './pages/BrowseGuilds';
-import AdminDashboard from './pages/AdminDashboard';
-import Profile from './pages/Profile';
-import UserProfileView from './pages/UserProfileView';
-import GuildDashboard from './pages/GuildDashboard';
-import CommissionedQuests from './pages/CommissionedQuests';
-import AcceptedQuests from './pages/AcceptedQuests';
-import GoogleCallback from './pages/GoogleCallback';
-import Chat from './pages/Chat';
-import PaymentSuccess from './pages/PaymentSuccess';
-import PaymentCancel from './pages/PaymentCancel';
+import { AuthProvider, useAuth } from './features/auth/AuthContext';
+import Landing from './features/landing/Landing';
+import Register from './features/auth/RegisterPage';
+import Login from './features/auth/LoginPage';
+import SkillsSelection from './features/auth/SkillsSelection';
+import Guilds from './features/guild/GuildsPage';
+import BrowseGuilds from './features/guild/BrowseGuilds';
+import AdminDashboard from './features/admin/AdminDashboard';
+import Profile from './features/profile/Profile';
+import UserProfileView from './features/admin/UserProfileView';
+import GuildDashboard from './features/guild/GuildDashboard';
+import CommissionedQuests from './features/quest/CommissionedQuests';
+import AcceptedQuests from './features/quest/AcceptedQuests';
+import GoogleCallback from './features/auth/GoogleCallback';
+import Chat from './features/chat/Chat';
+import PaymentSuccess from './features/payment/PaymentSuccess';
+import PaymentCancel from './features/payment/PaymentCancel';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading, authenticating } = useAuth();
