@@ -260,6 +260,21 @@ public class QuestController {
  
         quest.setStatus(QuestStatus.COMPLETED);
         quest = questRepository.save(quest);
+
+        // ── Award XP to the helper ────────────────────────────────────────────────────
+        if (quest.getHelper() != null) {
+            User helper = userRepository.findById(quest.getHelper().getId())
+                    .orElse(null);
+            if (helper != null) {
+                int xpGain = quest.getXpReward() != null ? quest.getXpReward() : 20;
+                int newXp  = (helper.getXp() != null ? helper.getXp() : 0) + xpGain;
+                // Level 1 starts at 0 XP; each subsequent level requires 100 XP
+                int newLevel = (newXp / 100) + 1;
+                helper.setXp(newXp);
+                helper.setLevel(newLevel);
+                userRepository.save(helper);
+            }
+        }
  
         // Notify the helper via automated chat message
         if (quest.getHelper() != null) {
