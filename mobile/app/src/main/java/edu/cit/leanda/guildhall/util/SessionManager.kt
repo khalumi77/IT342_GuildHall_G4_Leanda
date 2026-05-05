@@ -2,7 +2,7 @@ package edu.cit.leanda.guildhall.util
 
 import android.content.Context
 import android.content.SharedPreferences
-import edu.cit.leanda.guildhall.network.UserDto
+import edu.cit.leanda.guildhall.auth.UserDto
 
 /**
  * Thin wrapper around SharedPreferences.

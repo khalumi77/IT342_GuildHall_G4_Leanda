@@ -1,4 +1,4 @@
-package edu.cit.leanda.guildhall
+package edu.cit.leanda.guildhall.auth
 
 import android.content.Intent
 import android.os.Bundle
@@ -15,32 +15,31 @@ import com.google.android.gms.common.api.ApiException
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import edu.cit.leanda.guildhall.network.RetrofitClient
-import edu.cit.leanda.guildhall.repository.AuthRepository
+import edu.cit.leanda.guildhall.R
+import edu.cit.leanda.guildhall.MainActivity
+import edu.cit.leanda.guildhall.SkillsActivity
+import edu.cit.leanda.guildhall.auth.RetrofitClient
+import edu.cit.leanda.guildhall.auth.AuthRepository
 import edu.cit.leanda.guildhall.util.SessionManager
 import kotlinx.coroutines.launch
 
-class RegisterActivity : AppCompatActivity() {
+class LoginActivity : AppCompatActivity() {
 
     // ── Views ─────────────────────────────────────────────────────────────────
-    private lateinit var tilEmail: TextInputLayout
-    private lateinit var etEmail: TextInputEditText
-    private lateinit var tvEmailError: TextView
-
-    private lateinit var tilUsername: TextInputLayout
-    private lateinit var etUsername: TextInputEditText
+    private lateinit var tilUsernameOrEmail: TextInputLayout
+    private lateinit var etUsernameOrEmail: TextInputEditText
     private lateinit var tvUsernameError: TextView
 
     private lateinit var tilPassword: TextInputLayout
     private lateinit var etPassword: TextInputEditText
     private lateinit var tvPasswordError: TextView
 
-    private lateinit var btnSignUp: MaterialButton
-    private lateinit var btnGoogleSignUp: MaterialButton
+    private lateinit var btnSignIn: MaterialButton
+    private lateinit var btnGoogleSignIn: MaterialButton
     private lateinit var progressBar: ProgressBar
     private lateinit var errorContainer: View
     private lateinit var tvServerError: TextView
-    private lateinit var tvGoToLogin: TextView
+    private lateinit var tvGoToRegister: TextView
 
     // ── Dependencies ──────────────────────────────────────────────────────────
     private lateinit var repository: AuthRepository
@@ -48,7 +47,10 @@ class RegisterActivity : AppCompatActivity() {
     private lateinit var googleSignInClient: GoogleSignInClient
 
     companion object {
-        private const val RC_GOOGLE_SIGN_UP = 9002
+        private const val RC_GOOGLE_SIGN_IN = 9001
+
+        // ⚠️  Replace with your actual Google Web Client ID from Firebase / Google Cloud Console
+        // This is the SAME client ID used by the web app (VITE_GOOGLE_CLIENT_ID)
         private const val GOOGLE_WEB_CLIENT_ID =
             "835483502200-dc4gpdia39m4iseh8opekoc78pkddbm7.apps.googleusercontent.com"
     }
@@ -57,10 +59,16 @@ class RegisterActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_register)
+        setContentView(R.layout.activity_login)
 
         repository     = AuthRepository(RetrofitClient.apiService)
         sessionManager = SessionManager(this)
+
+        // If already logged in, skip straight to the main screen
+        if (sessionManager.isLoggedIn()) {
+            navigateAfterAuth(sessionManager.isNewUser())
+            return
+        }
 
         bindViews()
         setupGoogleSignIn()
@@ -70,24 +78,20 @@ class RegisterActivity : AppCompatActivity() {
     // ── View binding ──────────────────────────────────────────────────────────
 
     private fun bindViews() {
-        tilEmail    = findViewById(R.id.tilEmail)
-        etEmail     = findViewById(R.id.etEmail)
-        tvEmailError = findViewById(R.id.tvEmailError)
-
-        tilUsername    = findViewById(R.id.tilUsername)
-        etUsername     = findViewById(R.id.etUsername)
-        tvUsernameError = findViewById(R.id.tvUsernameError)
+        tilUsernameOrEmail = findViewById(R.id.tilUsernameOrEmail)
+        etUsernameOrEmail  = findViewById(R.id.etUsernameOrEmail)
+        tvUsernameError    = findViewById(R.id.tvUsernameError)
 
         tilPassword    = findViewById(R.id.tilPassword)
         etPassword     = findViewById(R.id.etPassword)
         tvPasswordError = findViewById(R.id.tvPasswordError)
 
-        btnSignUp       = findViewById(R.id.btnSignUp)
-        btnGoogleSignUp = findViewById(R.id.btnGoogleSignUp)
+        btnSignIn       = findViewById(R.id.btnSignIn)
+        btnGoogleSignIn = findViewById(R.id.btnGoogleSignIn)
         progressBar     = findViewById(R.id.progressBar)
         errorContainer  = findViewById(R.id.errorContainer)
         tvServerError   = findViewById(R.id.tvServerError)
-        tvGoToLogin     = findViewById(R.id.tvGoToLogin)
+        tvGoToRegister  = findViewById(R.id.tvGoToRegister)
     }
 
     // ── Google Sign-In setup ──────────────────────────────────────────────────
@@ -103,28 +107,26 @@ class RegisterActivity : AppCompatActivity() {
     // ── Listeners ─────────────────────────────────────────────────────────────
 
     private fun setupListeners() {
-        btnSignUp.setOnClickListener { attemptRegister() }
+        btnSignIn.setOnClickListener { attemptLogin() }
 
+        // Allow submitting by pressing Done on the keyboard
         etPassword.setOnEditorActionListener { _, _, _ ->
-            attemptRegister()
+            attemptLogin()
             true
         }
 
-        btnGoogleSignUp.setOnClickListener {
-            startActivityForResult(googleSignInClient.signInIntent, RC_GOOGLE_SIGN_UP)
+        btnGoogleSignIn.setOnClickListener {
+            val signInIntent = googleSignInClient.signInIntent
+            startActivityForResult(signInIntent, RC_GOOGLE_SIGN_IN)
         }
 
-        tvGoToLogin.setOnClickListener {
-            // Go back if LoginActivity is already in the back stack, else start it
-            if (!navigateUpTo(Intent(this, LoginActivity::class.java))) {
-                startActivity(Intent(this, LoginActivity::class.java))
-            }
-            finish()
+        tvGoToRegister.setOnClickListener {
+            startActivity(Intent(this, RegisterActivity::class.java))
+            // Don't finish — user may come back
         }
 
         // Clear field-level errors as user types
-        etEmail.setOnFocusChangeListener    { _, _ -> clearFieldError(tvEmailError, tilEmail) }
-        etUsername.setOnFocusChangeListener { _, _ -> clearFieldError(tvUsernameError, tilUsername) }
+        etUsernameOrEmail.setOnFocusChangeListener { _, _ -> clearFieldError(tvUsernameError, tilUsernameOrEmail) }
         etPassword.setOnFocusChangeListener { _, _ -> clearFieldError(tvPasswordError, tilPassword) }
     }
 
@@ -133,73 +135,45 @@ class RegisterActivity : AppCompatActivity() {
     private fun validate(): Boolean {
         var valid = true
 
-        val email    = etEmail.text?.toString()?.trim() ?: ""
-        val username = etUsername.text?.toString()?.trim() ?: ""
-        val password = etPassword.text?.toString() ?: ""
+        val usernameOrEmail = etUsernameOrEmail.text?.toString()?.trim() ?: ""
+        val password        = etPassword.text?.toString() ?: ""
 
-        // Email
-        when {
-            email.isEmpty() -> {
-                showFieldError(tvEmailError, tilEmail, getString(R.string.error_field_required))
-                valid = false
-            }
-            !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches() -> {
-                showFieldError(tvEmailError, tilEmail, getString(R.string.error_invalid_email))
-                valid = false
-            }
+        if (usernameOrEmail.isEmpty()) {
+            showFieldError(tvUsernameError, tilUsernameOrEmail, getString(R.string.error_field_required))
+            valid = false
         }
 
-        // Username
-        when {
-            username.isEmpty() -> {
-                showFieldError(tvUsernameError, tilUsername, getString(R.string.error_field_required))
-                valid = false
-            }
-            username.length < 3 -> {
-                showFieldError(tvUsernameError, tilUsername, getString(R.string.error_username_short))
-                valid = false
-            }
-        }
-
-        // Password
-        when {
-            password.isEmpty() -> {
-                showFieldError(tvPasswordError, tilPassword, getString(R.string.error_field_required))
-                valid = false
-            }
-            password.length < 8 -> {
-                showFieldError(tvPasswordError, tilPassword, getString(R.string.error_password_short))
-                valid = false
-            }
+        if (password.isEmpty()) {
+            showFieldError(tvPasswordError, tilPassword, getString(R.string.error_field_required))
+            valid = false
         }
 
         return valid
     }
 
-    // ── Register flow ─────────────────────────────────────────────────────────
+    // ── Login flow ────────────────────────────────────────────────────────────
 
-    private fun attemptRegister() {
+    private fun attemptLogin() {
         hideServerError()
         if (!validate()) return
 
-        val email    = etEmail.text?.toString()?.trim() ?: ""
-        val username = etUsername.text?.toString()?.trim() ?: ""
-        val password = etPassword.text?.toString() ?: ""
+        val usernameOrEmail = etUsernameOrEmail.text?.toString()?.trim() ?: ""
+        val password        = etPassword.text?.toString() ?: ""
 
         setLoading(true)
 
         lifecycleScope.launch {
-            val result = repository.register(email, username, password)
+            val result = repository.login(usernameOrEmail, password)
             setLoading(false)
 
             result.fold(
                 onSuccess = { (token, user) ->
                     sessionManager.saveToken(token)
                     sessionManager.saveUser(user)
-                    navigateAfterAuth(isNewUser = user.newUser)
+                    navigateAfterAuth(isNewUser = false) // login → never new user
                 },
                 onFailure = { error ->
-                    showServerError(error.message ?: "Registration failed.")
+                    showServerError(error.message ?: "Login failed.")
                 }
             )
         }
@@ -207,11 +181,11 @@ class RegisterActivity : AppCompatActivity() {
 
     // ── Google Sign-In result ─────────────────────────────────────────────────
 
-    @Deprecated("Kept for Android Studio Iguana / API compat")
+    @Deprecated("onActivityResult deprecated in favour of ActivityResultLauncher, kept for Iguana compat")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode == RC_GOOGLE_SIGN_UP) {
+        if (requestCode == RC_GOOGLE_SIGN_IN) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(data)
             try {
                 val account: GoogleSignInAccount = task.getResult(ApiException::class.java)
@@ -250,9 +224,9 @@ class RegisterActivity : AppCompatActivity() {
 
     private fun navigateAfterAuth(isNewUser: Boolean) {
         val destination = when {
-            sessionManager.isGuildmaster() -> MainActivity::class.java
-            isNewUser                      -> SkillsActivity::class.java
-            else                           -> MainActivity::class.java
+            sessionManager.isGuildmaster() -> MainActivity::class.java  // → admin home
+            isNewUser                      -> SkillsActivity::class.java // → skill picker
+            else                           -> MainActivity::class.java   // → guild list
         }
         startActivity(Intent(this, destination))
         finish()
@@ -261,17 +235,17 @@ class RegisterActivity : AppCompatActivity() {
     // ── UI helpers ────────────────────────────────────────────────────────────
 
     private fun setLoading(loading: Boolean) {
-        progressBar.visibility    = if (loading) View.VISIBLE else View.GONE
-        btnSignUp.isEnabled       = !loading
-        btnGoogleSignUp.isEnabled = !loading
-        btnSignUp.text = if (loading)
-            getString(R.string.btn_enrolling)
+        progressBar.visibility = if (loading) View.VISIBLE else View.GONE
+        btnSignIn.isEnabled       = !loading
+        btnGoogleSignIn.isEnabled = !loading
+        btnSignIn.text = if (loading)
+            getString(R.string.btn_signing_in)
         else
-            getString(R.string.btn_sign_up)
+            getString(R.string.btn_sign_in)
     }
 
     private fun showServerError(message: String) {
-        tvServerError.text        = message
+        tvServerError.text  = message
         errorContainer.visibility = View.VISIBLE
     }
 
@@ -280,10 +254,10 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun showFieldError(tv: TextView, til: TextInputLayout, message: String) {
-        tv.text            = message
-        tv.visibility      = View.VISIBLE
+        tv.text       = message
+        tv.visibility = View.VISIBLE
         til.isErrorEnabled = true
-        til.error          = " "
+        til.error     = " "          // triggers red stroke without duplicate text
     }
 
     private fun clearFieldError(tv: TextView, til: TextInputLayout) {

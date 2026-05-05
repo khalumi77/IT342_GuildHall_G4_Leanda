@@ -1,4 +1,4 @@
-package edu.cit.leanda.guildhall.network
+package edu.cit.leanda.guildhall.auth
 
 import retrofit2.Response
 import retrofit2.http.Body

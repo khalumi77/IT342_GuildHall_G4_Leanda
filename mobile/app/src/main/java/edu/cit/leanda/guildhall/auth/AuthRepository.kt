@@ -1,10 +1,10 @@
-package edu.cit.leanda.guildhall.repository
+package edu.cit.leanda.guildhall.auth
 
-import edu.cit.leanda.guildhall.network.ApiService
-import edu.cit.leanda.guildhall.network.GoogleLoginRequest
-import edu.cit.leanda.guildhall.network.LoginRequest
-import edu.cit.leanda.guildhall.network.RegisterRequest
-import edu.cit.leanda.guildhall.network.UserDto
+import edu.cit.leanda.guildhall.auth.ApiService
+import edu.cit.leanda.guildhall.auth.GoogleLoginRequest
+import edu.cit.leanda.guildhall.auth.LoginRequest
+import edu.cit.leanda.guildhall.auth.RegisterRequest
+import edu.cit.leanda.guildhall.auth.UserDto
 
 /**
  * AuthRepository wraps all authentication network calls.

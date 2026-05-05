@@ -14,7 +14,7 @@
 
         <!-- Login — launcher entry point -->
         <activity
-            android:name=".LoginActivity"
+            android:name=".auth.LoginActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -25,7 +25,7 @@
 
         <!-- Register -->
         <activity
-            android:name=".RegisterActivity"
+            android:name=".auth.RegisterActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
