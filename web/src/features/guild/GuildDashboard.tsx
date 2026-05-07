@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import Navbar from '../../shared/components/Navbar';
+import ConfirmModal from '../../shared/components/ConfirmModal';
 import api from '../auth/authApi';
 import { supabase } from '../../shared/api/supabaseClient';
 import QuestDetailModal, { type QuestDetail, StatusBadge } from '../quest/QuestDetailModal';
@@ -176,6 +177,8 @@ export default function GuildDashboard() {
   const [completing, setCompleting] = useState<number | null>(null);
   const [completeTarget, setCompleteTarget] = useState<Quest | null>(null);
   const [completeSuccess, setCompleteSuccess] = useState<string | null>(null);
+  const [deleteQuestConfirm, setDeleteQuestConfirm] = useState<Quest | null>(null);
+  const [isDeletingQuest, setIsDeletingQuest] = useState(false);
 
   useEffect(() => {
     if (!guildId) { setNotFound(true); setIsLoading(false); return; }
@@ -271,16 +274,26 @@ export default function GuildDashboard() {
 
   // ── Delete quest ──────────────────────────────────────────────────────────
 
-  const handleDeleteQuest = async (questId: number) => {
-    if (!window.confirm('Delete this quest? This cannot be undone.')) return;
+  const handleDeleteQuest = (questId: number) => {
+    const quest = quests.find(q => q.id === questId);
+    if (!quest) return;
+    setDeleteQuestConfirm(quest);
+    setSelectedQuest(null);
+  };
+
+  const confirmDeleteQuest = async () => {
+    if (!deleteQuestConfirm) return;
+    setIsDeletingQuest(true);
     try {
-      await api.delete(`/guilds/${guildId}/quests/${questId}`);
-      setQuests(prev => prev.filter(q => q.id !== questId));
+      await api.delete(`/guilds/${guildId}/quests/${deleteQuestConfirm.id}`);
+      setQuests(prev => prev.filter(q => q.id !== deleteQuestConfirm.id));
       setSelectedQuest(null);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: { message?: string } } } };
       alert(e?.response?.data?.error?.message || 'Failed to delete quest.');
     }
+    setIsDeletingQuest(false);
+    setDeleteQuestConfirm(null);
   };
 
   // ── File change handler (shared for create + edit) ────────────────────────
@@ -512,6 +525,18 @@ export default function GuildDashboard() {
         <CompleteSuccessModal
           helperName={completeSuccess}
           onClose={() => setCompleteSuccess(null)}
+        />
+      )}
+
+      {deleteQuestConfirm && (
+        <ConfirmModal
+          title={`Delete "${deleteQuestConfirm.title}"?`}
+          message="This cannot be undone."
+          confirmLabel="Delete Quest"
+          cancelLabel="Cancel"
+          onConfirm={confirmDeleteQuest}
+          onCancel={() => setDeleteQuestConfirm(null)}
+          loading={isDeletingQuest}
         />
       )}
 

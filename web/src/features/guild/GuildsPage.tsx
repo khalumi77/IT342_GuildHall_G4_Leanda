@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import Navbar from '../../shared/components/Navbar';
+import ConfirmModal from '../../shared/components/ConfirmModal';
 import api from '../auth/authApi';
 
 interface Guild {
@@ -20,6 +21,8 @@ export default function Guilds() {
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [leaveGuildConfirm, setLeaveGuildConfirm] = useState<Guild | null>(null);
+  const [isLeaving, setIsLeaving] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,15 +54,22 @@ export default function Guilds() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleLeaveGuild = async (guildId: number, e: React.MouseEvent) => {
+  const promptLeaveGuild = (guild: Guild, e: React.MouseEvent) => {
     e.stopPropagation(); // don't navigate to dashboard
-    if (!window.confirm('Are you sure you want to leave this guild?')) return;
+    setLeaveGuildConfirm(guild);
+  };
+
+  const confirmLeaveGuild = async () => {
+    if (!leaveGuildConfirm) return;
+    setIsLeaving(true);
     try {
-      await api.delete(`/guilds/${guildId}/leave`);
-      setGuilds(prev => prev.filter(g => g.id !== guildId));
+      await api.delete(`/guilds/${leaveGuildConfirm.id}/leave`);
+      setGuilds(prev => prev.filter(g => g.id !== leaveGuildConfirm.id));
     } catch {
       alert('Failed to leave guild. Please try again.');
     }
+    setIsLeaving(false);
+    setLeaveGuildConfirm(null);
     setOpenMenuId(null);
   };
 
@@ -110,13 +120,25 @@ export default function Guilds() {
                   e.stopPropagation();
                   setOpenMenuId(id => id === guild.id ? null : guild.id);
                 }}
-                onLeave={(e) => handleLeaveGuild(guild.id, e)}
+                onLeave={(e) => promptLeaveGuild(guild, e)}
                 menuRef={menuRef}
               />
             ))}
           </div>
         )}
       </main>
+
+      {leaveGuildConfirm && (
+        <ConfirmModal
+          title={`Leave "${leaveGuildConfirm.name}"?`}
+          message="Are you sure you want to leave this guild?"
+          confirmLabel="Leave Guild"
+          cancelLabel="Cancel"
+          onConfirm={confirmLeaveGuild}
+          onCancel={() => setLeaveGuildConfirm(null)}
+          loading={isLeaving}
+        />
+      )}
     </div>
   );
 }

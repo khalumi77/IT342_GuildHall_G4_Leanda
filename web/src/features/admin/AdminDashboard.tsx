@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../shared/components/Navbar';
+import ConfirmModal from '../../shared/components/ConfirmModal';
 import api from './adminApi';
 
 interface Guild {
@@ -46,6 +47,9 @@ export default function AdminDashboard() {
 
   const [guildMenuId, setGuildMenuId] = useState<number | null>(null);
   const [userMenuId, setUserMenuId] = useState<number | null>(null);
+  const [guildToDelete, setGuildToDelete] = useState<Guild | null>(null);
+  const [userToBan, setUserToBan] = useState<User | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -90,14 +94,21 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteGuild = async (guild: Guild) => {
-    if (!window.confirm(`Delete "${guild.name}"? This cannot be undone.`)) return;
+  const handleDeleteGuild = (guild: Guild) => {
+    setGuildToDelete(guild);
+    setGuildMenuId(null);
+  };
+
+  const confirmDeleteGuild = async () => {
+    if (!guildToDelete) return;
+    setIsConfirming(true);
     try {
-      await api.delete(`/admin/guilds/${guild.id}`);
-      setGuilds(prev => prev.filter(g => g.id !== guild.id));
+      await api.delete(`/admin/guilds/${guildToDelete.id}`);
+      setGuilds(prev => prev.filter(g => g.id !== guildToDelete.id));
       setTotalGuilds(n => n - 1);
     } catch { alert('Failed to delete guild.'); }
-    setGuildMenuId(null);
+    setIsConfirming(false);
+    setGuildToDelete(null);
   };
 
   const openRenameModal = (guild: Guild) => {
@@ -124,14 +135,21 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleBanUser = async (u: User) => {
-    if (!window.confirm(`Ban "${u.username}"? They will no longer be able to log in.`)) return;
+  const handleBanUser = (u: User) => {
+    setUserToBan(u);
+    setUserMenuId(null);
+  };
+
+  const confirmBanUser = async () => {
+    if (!userToBan) return;
+    setIsConfirming(true);
     try {
-      await api.post(`/admin/users/${u.id}/ban`, { reason: 'Banned by Guildmaster' });
-      setUsers(prev => prev.filter(usr => usr.id !== u.id));
+      await api.post(`/admin/users/${userToBan.id}/ban`, { reason: 'Banned by Guildmaster' });
+      setUsers(prev => prev.filter(usr => usr.id !== userToBan.id));
       setTotalUsers(n => n - 1);
     } catch { alert('Failed to ban user.'); }
-    setUserMenuId(null);
+    setIsConfirming(false);
+    setUserToBan(null);
   };
 
   const handleCreateGuild = async () => {
@@ -219,9 +237,9 @@ export default function AdminDashboard() {
                     <span style={styles.dotMenu}>···</span>
                   </button>
                   {guildMenuId === guild.id && (
-                    <div style={styles.contextMenu}>
-                      <button style={styles.contextItem} onClick={() => openRenameModal(guild)}>Rename Guild</button>
-                      <button style={{ ...styles.contextItem, color: '#c73434' }} onClick={() => handleDeleteGuild(guild)}>Delete Guild</button>
+                    <div style={styles.contextMenu} onClick={e => e.stopPropagation()}>
+                      <button style={styles.contextItem} onClick={e => { e.stopPropagation(); openRenameModal(guild); }}>Rename Guild</button>
+                      <button style={{ ...styles.contextItem, color: '#c73434' }} onClick={e => { e.stopPropagation(); handleDeleteGuild(guild); }}>Delete Guild</button>
                     </div>
                   )}
                 </div>
@@ -255,8 +273,8 @@ export default function AdminDashboard() {
                     <span style={styles.dotMenu}>···</span>
                   </button>
                   {userMenuId === u.id && (
-                    <div style={styles.contextMenu}>
-                      <button style={{ ...styles.contextItem, color: '#c73434' }} onClick={() => handleBanUser(u)}>Ban User</button>
+                    <div style={styles.contextMenu} onClick={e => e.stopPropagation()}>
+                      <button style={{ ...styles.contextItem, color: '#c73434' }} onClick={e => { e.stopPropagation(); handleBanUser(u); }}>Ban User</button>
                     </div>
                   )}
                 </div>
@@ -265,6 +283,30 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
+
+      {guildToDelete && (
+        <ConfirmModal
+          title={`Delete "${guildToDelete.name}"?`}
+          message="This cannot be undone."
+          confirmLabel="Delete Guild"
+          cancelLabel="Cancel"
+          onConfirm={confirmDeleteGuild}
+          onCancel={() => setGuildToDelete(null)}
+          loading={isConfirming}
+        />
+      )}
+
+      {userToBan && (
+        <ConfirmModal
+          title={`Ban "${userToBan.username}"?`}
+          message="They will no longer be able to log in."
+          confirmLabel="Ban User"
+          cancelLabel="Cancel"
+          onConfirm={confirmBanUser}
+          onCancel={() => setUserToBan(null)}
+          loading={isConfirming}
+        />
+      )}
 
       {/* Create Guild Modal */}
       {showCreateGuild && (
