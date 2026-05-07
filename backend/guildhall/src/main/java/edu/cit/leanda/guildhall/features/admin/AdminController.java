@@ -1,5 +1,6 @@
 package edu.cit.leanda.guildhall.features.admin;
 
+
 import edu.cit.leanda.guildhall.shared.decorator.ApiResponseWrapper;
 import edu.cit.leanda.guildhall.features.guild.Guild;
 import edu.cit.leanda.guildhall.features.guild.Membership;
@@ -9,6 +10,8 @@ import edu.cit.leanda.guildhall.features.user.Role;
 import edu.cit.leanda.guildhall.shared.factory.UserDtoFactory;
 import edu.cit.leanda.guildhall.features.guild.GuildRepository;
 import edu.cit.leanda.guildhall.features.guild.MembershipRepository;
+import edu.cit.leanda.guildhall.features.quest.QuestRepository;
+import edu.cit.leanda.guildhall.features.quest.QuestStatus;
 import edu.cit.leanda.guildhall.features.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -17,9 +20,11 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
+
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
 
 /**
  * AdminController — refactored with Decorator + Factory Method patterns.
@@ -34,11 +39,14 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AdminController {
 
+
     private final GuildRepository guildRepository;
     private final UserRepository userRepository;
     private final MembershipRepository membershipRepository;
+    private final QuestRepository questRepository;
     private final ApiResponseWrapper responseWrapper;  // Decorator Pattern
     private final UserDtoFactory userDtoFactory;       // Factory Method Pattern
+
 
     @GetMapping("/guilds")
     public ResponseEntity<?> getAllGuilds() {
@@ -48,39 +56,47 @@ public class AdminController {
                             .filter(m -> m.getGuild().getId().equals(g.getId())
                                     && m.getStatus() == MembershipStatus.ACTIVE)
                             .count();
+                    long questCount = questRepository.findByGuildIdAndStatus(g.getId(), QuestStatus.OPEN).size();
                     return Map.<String, Object>of(
                             "id", g.getId(),
                             "name", g.getName(),
                             "description", g.getDescription() != null ? g.getDescription() : "",
                             "memberCount", memberCount,
-                            "questCount", 0
+                            "questCount", questCount
                     );
                 })
                 .collect(Collectors.toList());
 
+
         return ResponseEntity.ok(responseWrapper.ok(guilds));  // Decorator Pattern
     }
+
 
     @PostMapping("/guilds")
     public ResponseEntity<?> createGuild(
             @RequestBody Map<String, String> body,
             @AuthenticationPrincipal UserDetails userDetails) {
 
+
         String name = body.get("name");
         String description = body.getOrDefault("description", "");
+
 
         if (name == null || name.isBlank()) {
             return ResponseEntity.badRequest()
                     .body(responseWrapper.error("Guild name is required")); // Decorator Pattern
         }
 
+
         if (guildRepository.findByName(name.trim()).isPresent()) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(responseWrapper.error("A guild with this name already exists")); // Decorator Pattern
         }
 
+
         User creator = userRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
 
         Guild guild = Guild.builder()
                 .name(name.trim())
@@ -89,11 +105,13 @@ public class AdminController {
                 .build();
         guild = guildRepository.save(guild);
 
+
         membershipRepository.save(Membership.builder()
                 .user(creator)
                 .guild(guild)
                 .status(MembershipStatus.ACTIVE)
                 .build());
+
 
         final Long guildId = guild.getId();
         return ResponseEntity.status(HttpStatus.CREATED).body(responseWrapper.ok(Map.of( // Decorator Pattern
@@ -105,10 +123,12 @@ public class AdminController {
         )));
     }
 
+
     @PutMapping("/guilds/{id}")
     public ResponseEntity<?> renameGuild(
             @PathVariable Long id,
             @RequestBody Map<String, String> body) {
+
 
         String newName = body.get("name");
         if (newName == null || newName.isBlank()) {
@@ -116,19 +136,24 @@ public class AdminController {
                     .body(responseWrapper.error("Name cannot be blank")); // Decorator Pattern
         }
 
+
         Guild guild = guildRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Guild not found"));
+
 
         guild.setName(newName.trim());
         guildRepository.save(guild);
 
+
         return ResponseEntity.ok(responseWrapper.ok(Map.of("id", guild.getId(), "name", guild.getName()))); // Decorator Pattern
     }
+
 
     @DeleteMapping("/guilds/{id}")
     public ResponseEntity<?> deleteGuild(@PathVariable Long id) {
         Guild guild = guildRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Guild not found"));
+
 
         List<Membership> memberships = membershipRepository.findAll().stream()
                 .filter(m -> m.getGuild().getId().equals(id))
@@ -136,8 +161,10 @@ public class AdminController {
         membershipRepository.deleteAll(memberships);
         guildRepository.delete(guild);
 
+
         return ResponseEntity.ok(responseWrapper.ok(Map.of("message", "Guild disbanded"))); // Decorator Pattern
     }
+
 
     @GetMapping("/users")
     public ResponseEntity<?> getAllUsers() {
@@ -157,15 +184,19 @@ public class AdminController {
                 })
                 .collect(Collectors.toList());
 
+
         return ResponseEntity.ok(responseWrapper.ok(users)); // Decorator Pattern
     }
+
 
     @GetMapping("/users/{id}")
     public ResponseEntity<?> getUserById(@PathVariable Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
+
         int level = user.getLevel() != null ? user.getLevel() : 1;
+
 
         Map<String, Object> data = new java.util.HashMap<>();
         data.put("id", user.getId());
@@ -180,18 +211,22 @@ public class AdminController {
         data.put("profilePictureUrl", user.getProfilePictureUrl() != null ? user.getProfilePictureUrl() : "");
         data.put("googleSub", user.getGoogleSub());
 
+
         return ResponseEntity.ok(responseWrapper.ok(data)); // Decorator Pattern
     }
+
 
     @PostMapping("/users/{id}/ban")
     public ResponseEntity<?> banUser(@PathVariable Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
+
         if (user.getRole() == Role.ROLE_GUILDMASTER) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(responseWrapper.error("Cannot ban a Guildmaster")); // Decorator Pattern
         }
+
 
         List<Membership> memberships = membershipRepository.findAll().stream()
                 .filter(m -> m.getUser().getId().equals(id))
@@ -199,9 +234,17 @@ public class AdminController {
         membershipRepository.deleteAll(memberships);
         userRepository.delete(user);
 
+
         return ResponseEntity.ok(responseWrapper.ok(Map.of("message", "User restricted"))); // Decorator Pattern
     }
 }
+
+
+
+
+
+
+
 
 
 
