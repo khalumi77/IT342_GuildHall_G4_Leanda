@@ -1,0 +1,1247 @@
+// src/pages/GuildDashboard.tsx
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import Navbar from '../../shared/components/Navbar';
+import ConfirmModal from '../../shared/components/ConfirmModal';
+import api from '../auth/authApi';
+import { supabase } from '../../shared/api/supabaseClient';
+import QuestDetailModal, { type QuestDetail, StatusBadge } from '../quest/QuestDetailModal';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface GuildInfo {
+  id: number;
+  name: string;
+  description: string;
+  memberCount: number;
+  questCount: number;
+  isMember: boolean;
+}
+
+type Quest = QuestDetail;
+
+const CATEGORIES = ['Design', 'Academic', 'Manual Labor', 'Tutoring', 'Media', 'IT/Tech', 'Writing'];
+
+// ── Daily quote helpers ───────────────────────────────────────────────────────
+
+const QUOTE_CACHE_KEY = 'guildhall_daily_quote';
+interface DailyQuote { text: string; author: string; date: string; }
+const FALLBACK_QUOTES = [
+  { text: "The only limit to our realization of tomorrow is our doubts of today.", author: "Franklin D. Roosevelt" },
+  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { text: "In the middle of every difficulty lies opportunity.", author: "Albert Einstein" },
+  { text: "Do what you can, with what you have, where you are.", author: "Theodore Roosevelt" },
+  { text: "It does not matter how slowly you go as long as you do not stop.", author: "Confucius" },
+];
+function getTodayString() { return new Date().toISOString().slice(0, 10); }
+function getCachedQuote(): DailyQuote | null {
+  try {
+    const raw = sessionStorage.getItem(QUOTE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed: DailyQuote = JSON.parse(raw);
+    return parsed.date === getTodayString() ? parsed : null;
+  } catch { return null; }
+}
+function setCachedQuote(q: DailyQuote) {
+  try { sessionStorage.setItem(QUOTE_CACHE_KEY, JSON.stringify(q)); } catch { /**/ }
+}
+
+// ── Attachment helpers ────────────────────────────────────────────────────────
+
+function downloadPdf(url: string, filename: string) {
+  const a = document.createElement('a'); a.href = url; a.download = filename;
+  a.target = '_blank'; a.rel = 'noopener noreferrer';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ── Quest Icon ────────────────────────────────────────────────────────────────
+
+function QuestIcon({ size = 40 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="4" y="2" width="22" height="32" rx="3" fill="#52734D" opacity="0.9"/>
+      <rect x="4" y="2" width="22" height="32" rx="3" stroke="#34C759" strokeWidth="1.5"/>
+      <rect x="8" y="8" width="10" height="2.5" rx="1" fill="#DDFFBC"/>
+      <rect x="8" y="13" width="14" height="2" rx="1" fill="#DDFFBC" opacity="0.7"/>
+      <rect x="8" y="18" width="12" height="2" rx="1" fill="#DDFFBC" opacity="0.7"/>
+      <rect x="8" y="23" width="8" height="2" rx="1" fill="#DDFFBC" opacity="0.5"/>
+      <rect x="18" y="0" width="14" height="18" rx="2" fill="#34C759"/>
+      <polygon points="18,18 25,14 32,18" fill="#52734D"/>
+    </svg>
+  );
+}
+
+// ── Accept Celebration Popup ──────────────────────────────────────────────────
+
+function AcceptedPopup({ quest, onOpenChat, onClose }: {
+  quest: Quest; onOpenChat: () => void; onClose: () => void;
+}) {
+  return (
+    <div style={ap.overlay} onClick={onClose}>
+      <div style={ap.card} onClick={e => e.stopPropagation()}>
+        <div style={ap.celebration}>⚔️</div>
+        <div style={ap.title}>Quest Accepted!</div>
+        <div style={ap.subtitle}>
+          You've taken on <strong>"{quest.title}"</strong>.<br />
+          It will appear in your Accepted Quests page.
+        </div>
+        <div style={ap.rule}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#92400e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          You can hold up to <strong>3 active quests</strong> per guild at a time.
+        </div>
+        <div style={ap.actions}>
+          <button style={ap.chatBtn} onClick={onOpenChat}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Open Chat
+          </button>
+          <button style={ap.nowBtn} onClick={onClose}>Not Now</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ap: Record<string, React.CSSProperties> = {
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: '24px' },
+  card: { backgroundColor: '#fff', borderRadius: '20px', padding: '32px 28px', maxWidth: '400px', width: '100%', boxShadow: '0 24px 80px rgba(0,0,0,0.25)', textAlign: 'center', fontFamily: "'Prompt', sans-serif" },
+  celebration: { fontSize: '52px', marginBottom: '12px' },
+  title: { fontWeight: 700, fontSize: '22px', color: '#166534', marginBottom: '8px' },
+  subtitle: { fontSize: '14px', color: '#444', lineHeight: '1.6', marginBottom: '16px' },
+  rule: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#fef3c7', border: '1px solid #fde68a', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#92400e', marginBottom: '24px' },
+  actions: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  chatBtn: { backgroundColor: '#52734D', color: '#fff', border: 'none', borderRadius: '12px', padding: '12px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
+  nowBtn: { background: 'none', border: '1.5px solid #ddd', borderRadius: '12px', padding: '11px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px', color: '#666', cursor: 'pointer' },
+};
+
+// ── Quest Form State ──────────────────────────────────────────────────────────
+
+interface QuestFormState {
+  title: string;
+  category: string;
+  description: string;
+  questType: 'VOLUNTEER' | 'PAID';
+  reward: string;
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
+export default function GuildDashboard() {
+  const { guildId } = useParams<{ guildId: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const [guild, setGuild] = useState<GuildInfo | null>(null);
+  const [quests, setQuests] = useState<Quest[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [quote, setQuote] = useState<{ text: string; author: string } | null>(getCachedQuote);
+  const [quoteLoading, setQuoteLoading] = useState(quote === null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'PENDING'>('ALL');
+
+  // Commission form
+  const [showCommissionForm, setShowCommissionForm] = useState(false);
+  const [form, setForm] = useState<QuestFormState>({ title: '', category: '', description: '', questType: 'VOLUNTEER', reward: '' });
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
+  const [compressingImage, setCompressingImage] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Edit form
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editingQuest, setEditingQuest] = useState<Quest | null>(null);
+  const [editForm, setEditForm] = useState<QuestFormState>({ title: '', category: '', description: '', questType: 'VOLUNTEER', reward: '' });
+  const [editAttachmentFile, setEditAttachmentFile] = useState<File | null>(null);
+  const [editAttachmentPreview, setEditAttachmentPreview] = useState<string | null>(null);
+  const [editCompressing, setEditCompressing] = useState(false);
+  const [editFormError, setEditFormError] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editAttachmentCleared, setEditAttachmentCleared] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Quest detail modal
+  const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
+
+  // Accept flow
+  const [accepting, setAccepting] = useState<number | null>(null);
+  const [acceptedQuest, setAcceptedQuest] = useState<Quest | null>(null);
+
+  // Complete flow
+  const [completing, setCompleting] = useState<number | null>(null);
+  const [completeTarget, setCompleteTarget] = useState<Quest | null>(null);
+  const [completeSuccess, setCompleteSuccess] = useState<string | null>(null);
+  const [deleteQuestConfirm, setDeleteQuestConfirm] = useState<Quest | null>(null);
+  const [isDeletingQuest, setIsDeletingQuest] = useState(false);
+
+  useEffect(() => {
+    if (!guildId) { setNotFound(true); setIsLoading(false); return; }
+    setIsLoading(true);
+    Promise.all([api.get(`/guilds/${guildId}`), api.get(`/guilds/${guildId}/quests`)])
+      .then(([guildRes, questsRes]) => {
+        setGuild(guildRes.data?.data ?? guildRes.data);
+        const qData = questsRes.data?.data ?? questsRes.data;
+        setQuests(Array.isArray(qData) ? qData : []);
+      })
+      .catch(err => { if (err?.response?.status === 403) navigate('/guilds'); else setNotFound(true); })
+      .finally(() => setIsLoading(false));
+  }, [guildId, navigate]);
+
+  useEffect(() => {
+    if (quote !== null) { setQuoteLoading(false); return; }
+    setQuoteLoading(true);
+    api.get('/wisdom')
+      .then(res => {
+        const data = res.data?.data ?? res.data;
+        if (data?.text && data?.author) {
+          const fresh = { text: data.text, author: data.author, date: getTodayString() };
+          setCachedQuote(fresh); setQuote(fresh);
+        } else throw new Error('bad');
+      })
+      .catch(() => setQuote(FALLBACK_QUOTES[new Date().getDate() % FALLBACK_QUOTES.length]))
+      .finally(() => setQuoteLoading(false));
+  }, []); // eslint-disable-line
+
+  // ── Open edit form ────────────────────────────────────────────────────────
+
+  const openEditForm = (quest: Quest) => {
+    setEditingQuest(quest);
+    setEditForm({
+      title: quest.title,
+      category: quest.category,
+      description: quest.description,
+      questType: quest.questType,
+      reward: quest.reward != null ? String(quest.reward) : '',
+    });
+    setEditAttachmentFile(null);
+    setEditAttachmentPreview(quest.attachmentData ?? null);
+    setEditAttachmentCleared(false);
+    setEditFormError('');
+    setShowEditForm(true);
+    setSelectedQuest(null);
+  };
+
+  // ── Accept quest ──────────────────────────────────────────────────────────
+
+  const handleAcceptQuest = async (questId: number) => {
+    setAccepting(questId);
+    try {
+      const res = await api.post(`/guilds/${guildId}/quests/${questId}/accept`);
+      const updated: Quest = res.data?.data ?? res.data;
+      setQuests(prev => prev.map(q => q.id === questId ? { ...q, ...updated } : q));
+      setSelectedQuest(null);
+      setAcceptedQuest(updated);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      alert(e?.response?.data?.error?.message || 'Failed to accept quest.');
+    } finally {
+      setAccepting(null);
+    }
+  };
+
+  // ── Complete quest ────────────────────────────────────────────────────────
+
+  const handleCompleteQuest = async (questId: number) => {
+    // Find the quest so we can show reward details in the confirm modal
+    const quest = quests.find(q => q.id === questId) ?? null;
+    setCompleteTarget(quest);
+    // Actual API call happens in confirmComplete after user confirms
+  };
+
+  const confirmComplete = async () => {
+    if (!completeTarget) return;
+    setCompleting(completeTarget.id);
+    setCompleteTarget(null);
+    try {
+      const res = await api.post(`/guilds/${guildId}/quests/${completeTarget.id}/complete`);
+      const updated: Quest = res.data?.data ?? res.data;
+      setQuests(prev => prev.filter(q => q.id !== completeTarget.id));
+      setSelectedQuest(null);
+      setCompleteSuccess(updated.helperUsername ?? 'The helper');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      alert(e?.response?.data?.error?.message || 'Failed to mark quest complete.');
+    } finally {
+      setCompleting(null);
+    }
+  };
+
+  // ── Delete quest ──────────────────────────────────────────────────────────
+
+  const handleDeleteQuest = (questId: number) => {
+    const quest = quests.find(q => q.id === questId);
+    if (!quest) return;
+    setDeleteQuestConfirm(quest);
+    setSelectedQuest(null);
+  };
+
+  const confirmDeleteQuest = async () => {
+    if (!deleteQuestConfirm) return;
+    setIsDeletingQuest(true);
+    try {
+      await api.delete(`/guilds/${guildId}/quests/${deleteQuestConfirm.id}`);
+      setQuests(prev => prev.filter(q => q.id !== deleteQuestConfirm.id));
+      setSelectedQuest(null);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      alert(e?.response?.data?.error?.message || 'Failed to delete quest.');
+    }
+    setIsDeletingQuest(false);
+    setDeleteQuestConfirm(null);
+  };
+
+  // ── File change handler (shared for create + edit) ────────────────────────
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, mode: 'create' | 'edit') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isPDF = file.type === 'application/pdf';
+    const setFile = mode === 'create' ? setAttachmentFile : setEditAttachmentFile;
+    const setPreview = mode === 'create' ? setAttachmentPreview : setEditAttachmentPreview;
+    const setCompressing = mode === 'create' ? setCompressingImage : setEditCompressing;
+    const setError = mode === 'create' ? setFormError : setEditFormError;
+
+    if (isPDF) {
+      if (file.size > 500 * 1024) { setError('PDF must be under 500 KB.'); return; }
+      setFile(file);
+      if (mode === 'edit') setEditAttachmentCleared(false);
+      const reader = new FileReader();
+      reader.onload = () => setPreview(reader.result as string);
+      reader.readAsDataURL(file);
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) { setError('Image must be under 10 MB.'); return; }
+    setFile(file);
+    if (mode === 'edit') setEditAttachmentCleared(false);
+    setCompressing(true);
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX = 800;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round((height / width) * MAX); width = MAX; }
+        else { width = Math.round((width / height) * MAX); height = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
+      setPreview(canvas.toDataURL('image/jpeg', 0.7));
+      setCompressing(false);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      const reader = new FileReader();
+      reader.onload = () => { setPreview(reader.result as string); setCompressing(false); };
+      reader.readAsDataURL(file);
+    };
+    img.src = objectUrl;
+  };
+
+  const removeAttachment = (mode: 'create' | 'edit') => {
+    if (mode === 'create') {
+      setAttachmentFile(null); setAttachmentPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } else {
+      setEditAttachmentFile(null); setEditAttachmentPreview(null);
+      setEditAttachmentCleared(true);
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+    }
+  };
+
+  const resetForm = () => {
+    setForm({ title: '', category: '', description: '', questType: 'VOLUNTEER', reward: '' });
+    setAttachmentFile(null); setAttachmentPreview(null); setFormError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // ── Create quest ──────────────────────────────────────────────────────────
+
+  const handleSubmitQuest = async () => {
+    setFormError('');
+    if (!form.title.trim()) { setFormError('Quest title is required.'); return; }
+    if (!form.category) { setFormError('Please select a category.'); return; }
+    if (!form.description.trim()) { setFormError('Description is required.'); return; }
+    if (form.questType === 'PAID' && (!form.reward || isNaN(Number(form.reward)) || Number(form.reward) <= 0)) {
+      setFormError('Please enter a valid payment amount.'); return;
+    }
+    setSubmitting(true);
+    try {
+      let attachmentUrl: string | null = null;
+      const attachmentFileName: string | null = attachmentFile?.name ?? null;
+      if (attachmentFile) {
+        setCompressingImage(true);
+        const ext = attachmentFile.name.split('.').pop();
+        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const filePath = `guild-${guildId}/${uniqueName}`;
+        const { error: uploadError } = await supabase.storage.from('quest-attachments').upload(filePath, attachmentFile, { upsert: false });
+        setCompressingImage(false);
+        if (uploadError) { setFormError(`File upload failed: ${uploadError.message}`); setSubmitting(false); return; }
+        const { data: urlData } = supabase.storage.from('quest-attachments').getPublicUrl(filePath);
+        attachmentUrl = urlData.publicUrl;
+      }
+      const payload: Record<string, unknown> = {
+        title: form.title.trim(), category: form.category, description: form.description.trim(),
+        questType: form.questType, reward: form.questType === 'PAID' ? Number(form.reward) : null,
+        attachmentName: attachmentFileName, attachmentPath: attachmentUrl,
+      };
+      const res = await api.post(`/guilds/${guildId}/quests`, payload);
+      const newQuest = res.data?.data ?? res.data;
+      setQuests(prev => [{ ...newQuest, attachmentData: attachmentUrl ?? null }, ...prev]);
+      resetForm();
+      setShowCommissionForm(false);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      setFormError(e?.response?.data?.error?.message || 'Failed to post quest.');
+    } finally { setSubmitting(false); }
+  };
+
+  // ── Edit quest submit ─────────────────────────────────────────────────────
+
+  const handleSubmitEdit = async () => {
+    if (!editingQuest) return;
+    setEditFormError('');
+    if (!editForm.title.trim()) { setEditFormError('Quest title is required.'); return; }
+    if (!editForm.category) { setEditFormError('Please select a category.'); return; }
+    if (!editForm.description.trim()) { setEditFormError('Description is required.'); return; }
+    if (editForm.questType === 'PAID' && (!editForm.reward || isNaN(Number(editForm.reward)) || Number(editForm.reward) <= 0)) {
+      setEditFormError('Please enter a valid payment amount.'); return;
+    }
+    setEditSubmitting(true);
+    try {
+      let attachmentUrl: string | null = null;
+      let attachmentFileName: string | null = null;
+
+      if (editAttachmentFile) {
+        setEditCompressing(true);
+        const ext = editAttachmentFile.name.split('.').pop();
+        const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const filePath = `guild-${guildId}/${uniqueName}`;
+        const { error: uploadError } = await supabase.storage.from('quest-attachments').upload(filePath, editAttachmentFile, { upsert: false });
+        setEditCompressing(false);
+        if (uploadError) { setEditFormError(`File upload failed: ${uploadError.message}`); setEditSubmitting(false); return; }
+        const { data: urlData } = supabase.storage.from('quest-attachments').getPublicUrl(filePath);
+        attachmentUrl = urlData.publicUrl;
+        attachmentFileName = editAttachmentFile.name;
+      } else if (editAttachmentCleared) {
+        attachmentUrl = null;
+        attachmentFileName = null;
+      } else {
+        attachmentUrl = editingQuest.attachmentData ?? null;
+        attachmentFileName = editingQuest.attachmentName ?? null;
+      }
+
+      const payload: Record<string, unknown> = {
+        title: editForm.title.trim(),
+        category: editForm.category,
+        description: editForm.description.trim(),
+        questType: editForm.questType,
+        reward: editForm.questType === 'PAID' ? Number(editForm.reward) : null,
+        attachmentName: attachmentFileName,
+        attachmentPath: attachmentUrl,
+      };
+
+      const res = await api.put(`/guilds/${guildId}/quests/${editingQuest.id}`, payload);
+      const updated: Quest = res.data?.data ?? res.data;
+
+      setQuests(prev => prev.map(q => q.id === editingQuest.id
+        ? { ...q, ...updated, attachmentData: attachmentUrl ?? null, attachmentName: attachmentFileName ?? null }
+        : q
+      ));
+      setShowEditForm(false);
+      setEditingQuest(null);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
+      setEditFormError(e?.response?.data?.error?.message || 'Failed to update quest.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  // ── Filter ────────────────────────────────────────────────────────────────
+
+  const visibleQuests = quests.filter(q => q.status !== 'COMPLETED' && q.status !== 'CANCELLED');
+
+  const filtered = visibleQuests.filter(q => {
+    const matchSearch = q.title.toLowerCase().includes(search.toLowerCase()) ||
+      q.category.toLowerCase().includes(search.toLowerCase()) ||
+      q.description.toLowerCase().includes(search.toLowerCase());
+    const matchStatus = statusFilter === 'ALL' || q.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  if (isLoading) return <div style={s.page}><Navbar /><div style={s.centered}>Loading quest board...</div></div>;
+  if (notFound || !guild) return (
+    <div style={s.page}><Navbar />
+      <div style={s.centered}>
+        <div style={{ color: '#888', fontSize: '16px' }}>Guild not found.</div>
+        <button style={s.backBtn} onClick={() => navigate('/guilds')}>← Back to My Guilds</button>
+      </div>
+    </div>
+  );
+
+  // Edit attachment display helpers
+  const editAttachDisplayName = editAttachmentFile?.name ?? (editAttachmentPreview ? 'Existing attachment' : null);
+  const editAttachIsImage = editAttachDisplayName ? /\.(jpg|jpeg|png|gif|webp)$/i.test(editAttachDisplayName) : false;
+
+  return (
+    <div style={s.page}>
+      <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+      <Navbar />
+
+      {/* Accept celebration popup */}
+      {acceptedQuest && (
+        <AcceptedPopup
+          quest={acceptedQuest}
+          onOpenChat={() => {
+            setAcceptedQuest(null);
+            api.post(`/guilds/${guildId}/quests/${acceptedQuest.id}/messages`, {
+              content: `${user?.username} accepted your quest`
+            }).catch(() => {});
+            navigate(`/chat?questId=${acceptedQuest.id}`);
+          }}
+          onClose={() => setAcceptedQuest(null)}
+        />
+      )}
+
+      {/* Complete quest confirmation modal */}
+      {completeTarget && (
+        <CompleteConfirmModal
+          quest={completeTarget}
+          onConfirm={confirmComplete}
+          onCancel={() => setCompleteTarget(null)}
+        />
+      )}
+
+      {/* Complete success modal */}
+      {completeSuccess && (
+        <CompleteSuccessModal
+          helperName={completeSuccess}
+          onClose={() => setCompleteSuccess(null)}
+        />
+      )}
+
+      {deleteQuestConfirm && (
+        <ConfirmModal
+          title={`Delete "${deleteQuestConfirm.title}"?`}
+          message="This cannot be undone."
+          confirmLabel="Delete Quest"
+          cancelLabel="Cancel"
+          onConfirm={confirmDeleteQuest}
+          onCancel={() => setDeleteQuestConfirm(null)}
+          loading={isDeletingQuest}
+        />
+      )}
+
+      {/* Quest detail modal */}
+      {selectedQuest && (
+        <QuestDetailModal
+          quest={selectedQuest}
+          onClose={() => setSelectedQuest(null)}
+          currentUserId={user?.id ?? 0}
+          onAccept={
+            selectedQuest.posterId !== (user?.id ?? 0) && selectedQuest.status === 'OPEN'
+              ? () => handleAcceptQuest(selectedQuest.id)
+              : undefined
+          }
+          onComplete={
+            selectedQuest.posterId === (user?.id ?? 0) && selectedQuest.status === 'PENDING'
+              ? () => handleCompleteQuest(selectedQuest.id)
+              : undefined
+          }
+          onDelete={
+            selectedQuest.posterId === (user?.id ?? 0)
+              ? () => handleDeleteQuest(selectedQuest.id)
+              : undefined
+          }
+          accepting={accepting === selectedQuest.id}
+          completing={completing === selectedQuest.id}
+          showGuildLink={false}
+        />
+      )}
+
+      <main style={s.main}>
+        <button style={s.backBtn} onClick={() => navigate('/guilds')}>← My Guilds</button>
+
+        {/* Daily Quote */}
+        <div style={s.quoteSection}>
+          <div style={s.quoteLabel}>Today's Heroes' Wisdom</div>
+          {quoteLoading ? (
+            <><div style={s.quoteShimmer} /><div style={{ ...s.quoteShimmer, width: '40%', marginTop: '6px' }} /></>
+          ) : quote ? (
+            <><div style={s.quoteText}>"{quote.text}"</div><div style={s.quoteAuthor}>–{quote.author}</div></>
+          ) : null}
+        </div>
+
+        {/* Quest panel */}
+        <div style={s.questPanel}>
+          <div style={s.panelHeader}>
+            <div style={s.panelTitleRow}>
+              <h2 style={s.panelTitle}>{guild.name} Quests</h2>
+              <button style={s.commissionBtn} onClick={() => { resetForm(); setShowCommissionForm(true); }}>
+                + Commission Quest
+              </button>
+            </div>
+            <div style={s.filterRow}>
+              <div style={s.searchWrap}>
+                <svg style={s.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input style={s.searchInput} placeholder="Search quests" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <div style={s.statusFilters}>
+                {(['ALL', 'OPEN', 'PENDING'] as const).map(f => (
+                  <button key={f} style={{ ...s.filterChip, ...(statusFilter === f ? s.filterChipActive : {}) }}
+                    onClick={() => setStatusFilter(f)}>
+                    {f === 'ALL' ? 'All' : f === 'OPEN' ? 'Open' : 'Pending'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div style={s.emptyState}>
+              <div style={{ fontSize: '44px', opacity: 0.3, marginBottom: '6px' }}>⚔️</div>
+              <div style={s.emptyTitle}>No quests here</div>
+              <div style={s.emptySubtitle}>
+                {search ? 'No quests match your search.' : 'Be the first to commission a quest!'}
+              </div>
+            </div>
+          ) : (
+            <div style={s.questGrid}>
+              {filtered.map(quest => (
+                <QuestCard
+                  key={quest.id}
+                  quest={quest}
+                  currentUserId={user?.id ?? 0}
+                  onClick={() => setSelectedQuest(quest)}
+                  onDelete={() => handleDeleteQuest(quest.id)}
+                  onAccept={() => handleAcceptQuest(quest.id)}
+                  onComplete={() => handleCompleteQuest(quest.id)}
+                  onEdit={() => openEditForm(quest)}
+                  accepting={accepting === quest.id}
+                  completing={completing === quest.id}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={s.guildFooter}>
+          <span style={s.footerItem}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            {guild.memberCount} members
+          </span>
+          <span style={s.footerItem}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            {visibleQuests.filter(q => q.status === 'OPEN').length} open quests
+          </span>
+          {guild.description && <span style={s.footerDesc}>{guild.description}</span>}
+        </div>
+      </main>
+
+      {/* ── Commission Quest Modal ── */}
+      {showCommissionForm && (
+        <QuestFormModal
+          title="Commission Quest"
+          submitLabel="Post Quest"
+          submitColor="#34C759"
+          notice={null}
+          form={form}
+          setForm={setForm}
+          attachDisplayName={attachmentFile?.name ?? null}
+          attachPreview={attachmentPreview}
+          compressing={compressingImage}
+          error={formError}
+          submitting={submitting}
+          fileInputRef={fileInputRef}
+          onFileChange={e => handleFileChange(e, 'create')}
+          onRemoveAttachment={() => removeAttachment('create')}
+          onSubmit={handleSubmitQuest}
+          onClose={() => setShowCommissionForm(false)}
+          formId="create"
+        />
+      )}
+
+      {/* ── Edit Quest Modal ── */}
+      {showEditForm && editingQuest && (
+        <QuestFormModal
+          title="Edit Quest"
+          submitLabel="Save Changes"
+          submitColor="#52734D"
+          notice={
+            editingQuest.status === 'PENDING'
+              ? `⚠️ This quest is in progress — ${editingQuest.helperUsername ?? 'the helper'} will be notified of your changes via chat.`
+              : '✏️ Only open or pending quests can be edited.'
+          }
+          noticeBg={editingQuest.status === 'PENDING' ? '#fef3c7' : '#f0f9ff'}
+          noticeBorder={editingQuest.status === 'PENDING' ? '#fde68a' : '#bae6fd'}
+          noticeColor={editingQuest.status === 'PENDING' ? '#92400e' : '#0369a1'}
+          form={editForm}
+          setForm={setEditForm}
+          attachDisplayName={editAttachDisplayName}
+          attachIsImage={editAttachIsImage}
+          attachPreview={editAttachmentPreview}
+          compressing={editCompressing}
+          error={editFormError}
+          submitting={editSubmitting}
+          fileInputRef={editFileInputRef}
+          onFileChange={e => handleFileChange(e, 'edit')}
+          onRemoveAttachment={() => removeAttachment('edit')}
+          onSubmit={handleSubmitEdit}
+          onClose={() => { setShowEditForm(false); setEditingQuest(null); }}
+          formId="edit"
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Quest Completion Confirm Modal ────────────────────────────────────────────
+
+function CompleteConfirmModal({ quest, onConfirm, onCancel }: {
+  quest: Quest;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const isPaid = quest.questType === 'PAID';
+
+  return (
+    <div style={cm.overlay} onClick={onCancel}>
+      <div style={cm.modal} onClick={e => e.stopPropagation()}>
+        {/* Icon */}
+        <div style={cm.iconWrap}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+
+        {/* Title */}
+        <h2 style={cm.title}>Mark Quest as Complete?</h2>
+
+        {/* Quest name */}
+        <div style={cm.questName}>"{quest.title}"</div>
+
+        {/* Body text */}
+        <p style={cm.body}>
+          Confirming this means <strong>{quest.helperUsername ?? 'the helper'}</strong> successfully completed the work.
+          They'll receive an automated reward summary in chat.
+        </p>
+
+        {/* Reward summary box */}
+        <div style={cm.rewardBox}>
+          <div style={cm.rewardLabel}>Rewards to be granted:</div>
+          <div style={cm.rewardRow}>
+            <span style={cm.rewardItem}>
+              +{quest.xpReward ?? 20} XP
+            </span>
+            {isPaid && quest.reward != null && (
+              <span style={cm.rewardItem}>
+                ₱{Number(quest.reward).toLocaleString()}
+              </span>
+            )}
+            {!isPaid && (
+              <span style={{ ...cm.rewardItem, color: '#888' }}>
+                Volunteer quest — no monetary reward
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={cm.actions}>
+          <button style={cm.cancelBtn} onClick={onCancel}>Cancel</button>
+          <button style={cm.confirmBtn} onClick={onConfirm}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Yes, Mark Complete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const cm: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 600, padding: '24px',
+  },
+  modal: {
+    backgroundColor: '#fff', borderRadius: '20px', padding: '32px 28px',
+    maxWidth: '420px', width: '100%',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.25)',
+    fontFamily: "'Prompt', sans-serif",
+    display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+    gap: '14px',
+  },
+  iconWrap: {
+    width: '60px', height: '60px', borderRadius: '50%',
+    backgroundColor: '#DDFFBC',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    marginBottom: '4px',
+  },
+  title: {
+    fontWeight: 700, fontSize: '20px', color: '#1a1a1a', margin: 0,
+  },
+  questName: {
+    fontSize: '14px', color: '#52734D', fontWeight: 600,
+    backgroundColor: '#DDFFBC', padding: '6px 16px', borderRadius: '20px',
+  },
+  body: {
+    fontSize: '14px', color: '#555', lineHeight: '1.6', margin: 0,
+  },
+  rewardBox: {
+    width: '100%', backgroundColor: '#f9fdf5',
+    border: '1.5px solid #DDFFBC', borderRadius: '12px',
+    padding: '14px 18px', textAlign: 'left',
+  },
+  rewardLabel: {
+    fontSize: '11px', fontWeight: 700, color: '#52734D',
+    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '10px',
+  },
+  rewardRow: {
+    display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap',
+  },
+  rewardItem: {
+    display: 'flex', alignItems: 'center', gap: '6px',
+    fontSize: '15px', fontWeight: 700, color: '#34C759',
+  },
+  actions: {
+    display: 'flex', gap: '12px', width: '100%', marginTop: '4px',
+  },
+  cancelBtn: {
+    flex: 1, background: 'none', border: '1.5px solid #ddd',
+    borderRadius: '12px', padding: '12px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px',
+    color: '#666', cursor: 'pointer',
+  },
+  confirmBtn: {
+    flex: 2, backgroundColor: '#34C759', color: '#fff',
+    border: 'none', borderRadius: '12px', padding: '12px 20px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px',
+    cursor: 'pointer', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', gap: '8px',
+  },
+};
+
+// ── Quest Completion Success Modal ────────────────────────────────────────────
+
+function CompleteSuccessModal({ helperName, onClose }: {
+  helperName: string;
+  onClose: () => void;
+}) {
+  return (
+    <div style={csm.overlay} onClick={onClose}>
+      <div style={csm.modal} onClick={e => e.stopPropagation()}>
+        {/* Icon */}
+        <div style={csm.iconWrap}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+
+        {/* Title */}
+        <h2 style={csm.title}>Quest Marked Complete!</h2>
+
+        {/* Body text */}
+        <p style={csm.body}>
+          <strong>{helperName}</strong> has been credited with the quest reward.
+        </p>
+
+        {/* Close button */}
+        <button style={csm.closeBtn} onClick={onClose}>
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const csm: Record<string, React.CSSProperties> = {
+  overlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 600, padding: '24px',
+  },
+  modal: {
+    backgroundColor: '#fff', borderRadius: '20px', padding: '32px 28px',
+    maxWidth: '380px', width: '100%',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.25)',
+    fontFamily: "'Prompt', sans-serif",
+    display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+    gap: '14px',
+  },
+  iconWrap: {
+    width: '60px', height: '60px', borderRadius: '50%',
+    backgroundColor: '#DDFFBC',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    marginBottom: '4px',
+  },
+  title: {
+    fontWeight: 700, fontSize: '20px', color: '#166534', margin: 0,
+  },
+  body: {
+    fontSize: '14px', color: '#555', lineHeight: '1.6', margin: 0,
+  },
+  closeBtn: {
+    backgroundColor: '#34C759', color: '#fff',
+    border: 'none', borderRadius: '12px', padding: '12px 24px',
+    fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px',
+    cursor: 'pointer', width: '100%', marginTop: '8px',
+  },
+};
+
+// ── Shared Quest Form Modal ───────────────────────────────────────────────────
+
+interface QuestFormModalProps {
+  title: string;
+  submitLabel: string;
+  submitColor: string;
+  notice: string | null;
+  noticeBg?: string;
+  noticeBorder?: string;
+  noticeColor?: string;
+  form: QuestFormState;
+  setForm: React.Dispatch<React.SetStateAction<QuestFormState>>;
+  attachDisplayName: string | null;
+  attachIsImage?: boolean;
+  attachPreview: string | null;
+  compressing: boolean;
+  error: string;
+  submitting: boolean;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemoveAttachment: () => void;
+  onSubmit: () => void;
+  onClose: () => void;
+  formId: string;
+}
+
+function QuestFormModal({
+  title, submitLabel, submitColor, notice,
+  noticeBg = '#f0f9ff', noticeBorder = '#bae6fd', noticeColor = '#0369a1',
+  form, setForm, attachDisplayName, attachIsImage, attachPreview,
+  compressing, error, submitting, fileInputRef,
+  onFileChange, onRemoveAttachment, onSubmit, onClose, formId,
+}: QuestFormModalProps) {
+  const isImg = attachIsImage ?? (attachDisplayName ? /\.(jpg|jpeg|png|gif|webp)$/i.test(attachDisplayName) : false);
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>{title}</h2>
+          <button style={s.closeXBtn} onClick={onClose}>✕</button>
+        </div>
+
+        {notice && (
+          <div style={{ backgroundColor: noticeBg, border: `1px solid ${noticeBorder}`, borderRadius: '8px', padding: '9px 13px', fontSize: '13px', color: noticeColor, marginBottom: '14px', marginTop: '10px', lineHeight: '1.5' }}>
+            {notice}
+          </div>
+        )}
+
+        {error && <div style={s.errorBox}>{error}</div>}
+
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Quest Title <span style={{ color: '#c73434' }}>*</span></label>
+          <input style={s.fieldInput} placeholder="Enter quest title here" value={form.title}
+            onChange={e => setForm(f => ({ ...f, title: e.target.value }))} maxLength={100} />
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Category <span style={{ color: '#c73434' }}>*</span></label>
+          <div style={s.categoryGrid}>
+            {CATEGORIES.map(cat => (
+              <label key={cat} style={s.categoryOption}>
+                <input type="radio" name={`cat-${formId}`} value={cat} checked={form.category === cat}
+                  onChange={() => setForm(f => ({ ...f, category: cat }))}
+                  style={{ accentColor: '#34C759', marginRight: '5px' }} />
+                {cat}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>
+            File Attachment <span style={{ color: '#aaa', fontWeight: 400, fontSize: '12px' }}>(optional)</span>
+          </label>
+          {compressing ? (
+            <div style={{ fontSize: '13px', color: '#888', padding: '8px 0', fontStyle: 'italic' }}>⏳ Processing file...</div>
+          ) : attachDisplayName ? (
+            <div style={s.attachPreviewRow}>
+              <span style={{ fontSize: '18px' }}>{isImg ? '🖼️' : '📄'}</span>
+              <span style={s.attachNameText}>{attachDisplayName}</span>
+              <button style={s.removeBtn} onClick={onRemoveAttachment}>✕</button>
+            </div>
+          ) : (
+            <button style={s.uploadBtn} onClick={() => fileInputRef.current?.click()}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Upload
+            </button>
+          )}
+          <input ref={fileInputRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={onFileChange} />
+          <div style={{ fontSize: '11px', color: '#bbb', marginTop: '4px' }}>Images or PDF · max 5MB</div>
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Description <span style={{ color: '#c73434' }}>*</span></label>
+          <textarea style={s.fieldTextarea} placeholder="Describe the quest in detail..." value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={4} maxLength={1000} />
+          <div style={{ fontSize: '11px', color: '#bbb', textAlign: 'right', marginTop: '3px' }}>{form.description.length}/1000</div>
+        </div>
+        <div style={s.fieldGroup}>
+          <label style={s.fieldLabel}>Reward Type <span style={{ color: '#c73434' }}>*</span></label>
+          <div style={s.rewardTypeRow}>
+            <label style={s.rewardOption}>
+              <input type="radio" name={`rewardType-${formId}`} checked={form.questType === 'VOLUNTEER'}
+                onChange={() => setForm(f => ({ ...f, questType: 'VOLUNTEER', reward: '' }))}
+                style={{ accentColor: '#34C759', marginRight: '6px' }} />
+              Volunteer
+            </label>
+            <label style={s.rewardOption}>
+              <input type="radio" name={`rewardType-${formId}`} checked={form.questType === 'PAID'}
+                onChange={() => setForm(f => ({ ...f, questType: 'PAID' }))}
+                style={{ accentColor: '#34C759', marginRight: '6px' }} />
+              Payment
+            </label>
+            {form.questType === 'PAID' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
+                <span style={{ fontWeight: 700, color: '#52734D', fontSize: '15px' }}>₱</span>
+                <input style={s.paymentInput} type="number" min="1" placeholder="Offered amount"
+                  value={form.reward} onChange={e => setForm(f => ({ ...f, reward: e.target.value }))} />
+              </div>
+            )}
+          </div>
+          <div style={s.xpNote}>✦ All quests award <strong>+20 XP</strong> upon completion</div>
+        </div>
+        <div style={s.modalFooter}>
+          <button style={s.cancelBtn} onClick={onClose}>Cancel</button>
+          <button
+            style={{ ...s.submitBtn, backgroundColor: submitColor, opacity: submitting || compressing ? 0.7 : 1 }}
+            onClick={onSubmit}
+            disabled={submitting || compressing}
+          >
+            {submitting ? 'Saving...' : submitLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Quest Card ────────────────────────────────────────────────────────────────
+
+function QuestCard({ quest, currentUserId, onClick, onDelete, onAccept, onComplete, onEdit, accepting, completing }: {
+  quest: Quest; currentUserId: number;
+  onClick: () => void; onDelete: () => void; onAccept: () => void; onComplete: () => void;
+  onEdit: () => void;
+  accepting: boolean; completing: boolean;
+}) {
+  const isPaid = quest.questType === 'PAID';
+  const isOwn = quest.posterId === currentUserId;
+  const isTaken = quest.status === 'PENDING';
+  const isOpen = quest.status === 'OPEN';
+  const canEdit = isOwn && (isOpen || isTaken || quest.status === 'PENDING_PAYMENT');
+  const hasImage = !!(quest.attachmentName?.match(/\.(jpg|jpeg|png|gif|webp)$/i)) && !!quest.attachmentData;
+  const hasPdf = !!(quest.attachmentName?.match(/\.pdf$/i)) && !!quest.attachmentData;
+
+  return (
+    <div style={{
+      ...cs.card,
+      opacity: (isTaken && !quest.acceptedByMe && !isOwn) ? 0.55 : 1,
+      filter: (isTaken && !quest.acceptedByMe && !isOwn) ? 'grayscale(0.3)' : 'none',
+    }}>
+      <div style={cs.cardClickArea} onClick={onClick}>
+        <div style={cs.cardHeader}>
+          <QuestIcon size={38} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={cs.cardTitle}>{quest.title}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '3px' }}>
+              <div style={cs.cardCategory}>{quest.category}</div>
+              <StatusBadge status={quest.status} />
+            </div>
+          </div>
+        </div>
+        <div style={cs.divider} />
+        <div style={cs.postedBy}>
+          posted by: {quest.postedBy}
+          {isTaken && quest.helperUsername && (
+            <span style={cs.takenBy}> · taken by {quest.helperUsername}</span>
+          )}
+        </div>
+        <div style={cs.descText}>{quest.description}</div>
+        {hasImage && (
+          <div style={cs.imageThumbnailWrap} onClick={e => e.stopPropagation()}>
+            <img src={quest.attachmentData!} alt={quest.attachmentName!} style={cs.imageThumbnail} onClick={onClick} />
+          </div>
+        )}
+        {hasPdf && (
+          <div style={cs.pdfBadge} onClick={e => { e.stopPropagation(); downloadPdf(quest.attachmentData!, quest.attachmentName!); }}>
+            <span style={{ fontSize: '16px' }}>📄</span>
+            <span style={cs.pdfName}>{quest.attachmentName}</span>
+            <span style={cs.downloadIcon}>↓</span>
+          </div>
+        )}
+        {quest.attachmentName && !hasImage && !hasPdf && (
+          <div style={cs.attachRow}>
+            <span style={{ fontSize: '15px' }}>📎</span>
+            <span style={cs.attachText}>{quest.attachmentName}</span>
+          </div>
+        )}
+      </div>
+
+      <div style={cs.footer}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+          {isPaid ? <span style={cs.paidText}>₱ {Number(quest.reward).toLocaleString()}</span>
+                  : <span style={cs.volBadge}>Volunteer</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={cs.xpText}>+{quest.xpReward} XP</span>
+          {isOwn && isTaken && (
+            <button style={cs.completeCardBtn} onClick={e => { e.stopPropagation(); onComplete(); }} disabled={completing}>
+              {completing ? '...' : '✓ Done'}
+            </button>
+          )}
+          {!isOwn && isOpen && (
+            <button style={{ ...cs.acceptCardBtn, opacity: accepting ? 0.7 : 1 }}
+              onClick={e => { e.stopPropagation(); onAccept(); }} disabled={accepting}>
+              {accepting ? '...' : 'Accept'}
+            </button>
+          )}
+          {!isOwn && quest.status === 'PENDING_PAYMENT' && (
+            <span style={cs.awaitingPayBadge}>💳 Awaiting Payment</span>
+          )}
+          {!isOwn && isTaken && !quest.acceptedByMe && (
+            <span style={cs.takenBadge}>Taken</span>
+          )}
+          {quest.acceptedByMe && (
+            <span style={cs.myQuestBadge}>My Quest</span>
+          )}
+          {/* Edit: show on own OPEN or PENDING quests */}
+          {canEdit && (
+            <button style={cs.editCardBtn} onClick={e => { e.stopPropagation(); onEdit(); }} title="Edit quest">
+              ✏️
+            </button>
+          )}
+          {isOwn && (
+            <button style={cs.deleteCardBtn} onClick={e => { e.stopPropagation(); onDelete(); }} title="Delete quest">
+              🗑
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const s: Record<string, React.CSSProperties> = {
+  page: { minHeight: '100vh', backgroundColor: '#f5f5f5', fontFamily: "'Prompt', sans-serif" },
+  centered: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '16px' },
+  main: { maxWidth: '800px', margin: '0 auto', padding: '20px 24px 48px' },
+  backBtn: { background: 'none', border: 'none', cursor: 'pointer', color: '#52734D', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '13px', padding: '0 0 4px', display: 'inline-flex', alignItems: 'center' },
+  quoteSection: { textAlign: 'center', padding: '16px 0 20px' },
+  quoteLabel: { color: '#34C759', fontWeight: 700, fontSize: '15px', marginBottom: '8px' },
+  quoteText: { color: '#555', fontSize: '14px', fontStyle: 'italic', lineHeight: '1.6', maxWidth: '500px', margin: '0 auto 4px' },
+  quoteAuthor: { color: '#999', fontSize: '12px', fontWeight: 500 },
+  quoteShimmer: { height: '14px', borderRadius: '6px', background: 'linear-gradient(90deg, #e8e8e8 25%, #f5f5f5 50%, #e8e8e8 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite', width: '70%', margin: '0 auto' },
+  questPanel: { backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 2px 16px rgba(0,0,0,0.07)', border: '1px solid #eee', overflow: 'hidden', marginBottom: '16px' },
+  panelHeader: { padding: '16px 20px 14px', borderBottom: '1px solid #f0f0f0' },
+  panelTitleRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' },
+  panelTitle: { color: '#34C759', fontWeight: 700, fontSize: '20px', margin: 0 },
+  commissionBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '20px', padding: '7px 18px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '13px', cursor: 'pointer', flexShrink: 0 },
+  filterRow: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
+  searchWrap: { position: 'relative', display: 'flex', alignItems: 'center', flex: 1, minWidth: '200px' },
+  searchIcon: { position: 'absolute', left: '11px', pointerEvents: 'none' },
+  searchInput: { width: '100%', padding: '8px 12px 8px 32px', border: '1.5px solid #e8e8e8', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '13px', outline: 'none', backgroundColor: '#fafafa', boxSizing: 'border-box' },
+  statusFilters: { display: 'flex', gap: '6px', flexShrink: 0 },
+  filterChip: { background: '#f5f5f5', border: '1.5px solid #e8e8e8', borderRadius: '20px', padding: '5px 12px', fontFamily: "'Prompt', sans-serif", fontSize: '12px', fontWeight: 600, color: '#666', cursor: 'pointer' },
+  filterChipActive: { backgroundColor: '#52734D', borderColor: '#52734D', color: '#fff' },
+  questGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px', padding: '16px 20px 20px' },
+  emptyState: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '56px 24px', gap: '8px' },
+  emptyTitle: { fontWeight: 700, fontSize: '17px', color: '#666' },
+  emptySubtitle: { fontSize: '13px', color: '#bbb', textAlign: 'center', maxWidth: '240px', lineHeight: '1.5' },
+  guildFooter: { display: 'flex', alignItems: 'center', gap: '20px', padding: '0 4px', flexWrap: 'wrap' },
+  footerItem: { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#999', fontWeight: 500 },
+  footerDesc: { fontSize: '12px', color: '#bbb', fontStyle: 'italic' },
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' },
+  modal: { backgroundColor: '#fff', borderRadius: '20px', width: '100%', maxWidth: '540px', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.22)', padding: '28px' },
+  modalHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', paddingBottom: '14px', borderBottom: '2px solid #f0f0f0' },
+  modalTitle: { color: '#34C759', fontWeight: 700, fontSize: '24px', margin: 0 },
+  closeXBtn: { background: '#c73434', border: 'none', borderRadius: '8px', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: '14px', flexShrink: 0 },
+  errorBox: { backgroundColor: '#ffe5e5', color: '#c73434', border: '1px solid #f5c6c6', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', marginBottom: '14px' },
+  fieldGroup: { marginBottom: '18px' },
+  fieldLabel: { display: 'block', color: '#34C759', fontWeight: 700, fontSize: '14px', marginBottom: '7px' },
+  fieldInput: { width: '100%', padding: '10px 14px', border: '1.5px solid #e0e0e0', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '14px', outline: 'none', boxSizing: 'border-box' },
+  fieldTextarea: { width: '100%', padding: '10px 14px', border: '1.5px solid #e0e0e0', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '14px', outline: 'none', boxSizing: 'border-box', resize: 'vertical', lineHeight: '1.5' },
+  categoryGrid: { display: 'flex', flexWrap: 'wrap', gap: '4px 18px' },
+  categoryOption: { display: 'flex', alignItems: 'center', fontSize: '14px', color: '#444', cursor: 'pointer', fontFamily: "'Prompt', sans-serif", padding: '3px 0' },
+  uploadBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 16px', backgroundColor: '#f5f5f5', border: '1.5px solid #ddd', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '13px', color: '#555', cursor: 'pointer' },
+  attachPreviewRow: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', border: '1.5px solid #DDFFBC', borderRadius: '8px', backgroundColor: '#f9fff5' },
+  attachNameText: { flex: 1, fontSize: '13px', color: '#444', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  removeBtn: { background: 'none', border: 'none', cursor: 'pointer', color: '#c73434', fontWeight: 700, fontSize: '14px', padding: '2px 6px' },
+  rewardTypeRow: { display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' },
+  rewardOption: { display: 'flex', alignItems: 'center', fontSize: '14px', color: '#444', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
+  paymentInput: { padding: '8px 10px', border: '1.5px solid #e0e0e0', borderRadius: '8px', fontFamily: "'Prompt', sans-serif", fontSize: '14px', outline: 'none', width: '150px' },
+  xpNote: { fontSize: '12px', color: '#666', marginTop: '10px', backgroundColor: '#f9fff5', border: '1px solid #DDFFBC', borderRadius: '6px', padding: '7px 12px', display: 'inline-block' },
+  modalFooter: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px', paddingTop: '16px', borderTop: '1px solid #f0f0f0' },
+  cancelBtn: { background: 'none', border: '1.5px solid #ddd', borderRadius: '20px', padding: '9px 22px', fontFamily: "'Prompt', sans-serif", fontWeight: 600, fontSize: '14px', color: '#777', cursor: 'pointer' },
+  submitBtn: { color: '#fff', border: 'none', borderRadius: '20px', padding: '9px 24px', fontFamily: "'Prompt', sans-serif", fontWeight: 700, fontSize: '14px', cursor: 'pointer' },
+};
+
+const cs: Record<string, React.CSSProperties> = {
+  card: { backgroundColor: '#DDFFBC', borderRadius: '14px', border: '1.5px solid rgba(82,115,77,0.2)', display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'opacity 0.2s, filter 0.2s' },
+  cardClickArea: { padding: '16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 },
+  cardHeader: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
+  cardTitle: { fontWeight: 700, fontSize: '15px', color: '#1a1a1a', lineHeight: '1.3', marginBottom: '2px' },
+  cardCategory: { fontSize: '11px', fontWeight: 600, color: '#52734D', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  divider: { height: '1px', backgroundColor: 'rgba(82,115,77,0.2)' },
+  postedBy: { fontSize: '12px', color: '#666' },
+  takenBy: { color: '#92400e', fontWeight: 600 },
+  descText: { fontSize: '13px', color: '#555', lineHeight: '1.5', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
+  imageThumbnailWrap: { borderRadius: '8px', overflow: 'hidden', border: '1.5px solid rgba(82,115,77,0.25)', lineHeight: 0 },
+  imageThumbnail: { width: '100%', maxHeight: '140px', objectFit: 'cover', display: 'block', cursor: 'pointer' },
+  pdfBadge: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#fff', borderRadius: '8px', border: '1.5px solid rgba(82,115,77,0.2)', cursor: 'pointer' },
+  pdfName: { flex: 1, fontSize: '12px', color: '#444', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  downloadIcon: { fontSize: '14px', fontWeight: 700, color: '#52734D', flexShrink: 0 },
+  attachRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid rgba(82,115,77,0.2)' },
+  attachText: { fontSize: '12px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
+  footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid rgba(82,115,77,0.15)', backgroundColor: 'rgba(255,255,255,0.3)', gap: '8px' },
+  volBadge: { backgroundColor: '#34C759', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
+  paidText: { fontWeight: 700, fontSize: '14px', color: '#34C759' },
+  xpText: { fontWeight: 700, fontSize: '13px', color: '#52734D' },
+  deleteCardBtn: { background: 'none', border: '1.5px solid #c73434', borderRadius: '6px', color: '#c73434', fontSize: '13px', padding: '3px 8px', cursor: 'pointer' },
+  editCardBtn: { background: 'none', border: '1.5px solid #52734D', borderRadius: '6px', color: '#52734D', fontSize: '13px', padding: '3px 8px', cursor: 'pointer' },
+  acceptCardBtn: { backgroundColor: '#34C759', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 12px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
+  completeCardBtn: { backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, padding: '4px 10px', cursor: 'pointer', fontFamily: "'Prompt', sans-serif" },
+  takenBadge: { backgroundColor: '#6b7280', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
+  awaitingPayBadge: {
+  backgroundColor: '#fef3c7', color: '#92400e',
+  fontSize: '11px', fontWeight: 700,
+  padding: '3px 10px', borderRadius: '20px',
+  border: '1px solid #fde68a',
+},
+  myQuestBadge: { backgroundColor: '#1e3a5f', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
+};
