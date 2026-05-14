@@ -1,14 +1,11 @@
 package edu.cit.leanda.guildhall.auth
 
-import edu.cit.leanda.guildhall.auth.ApiService
-import edu.cit.leanda.guildhall.auth.GoogleLoginRequest
-import edu.cit.leanda.guildhall.auth.LoginRequest
-import edu.cit.leanda.guildhall.auth.RegisterRequest
-import edu.cit.leanda.guildhall.auth.UserDto
-
 /**
  * AuthRepository wraps all authentication network calls.
  * Returns a [Result] so the ViewModel / Activity can handle success/failure cleanly.
+ *
+ * Google OAuth is now backend-driven — the repository only needs to call /auth/me
+ * after the backend redirects back with a JWT in the deep link.
  */
 class AuthRepository(private val api: ApiService) {
 
@@ -84,26 +81,58 @@ class AuthRepository(private val api: ApiService) {
     }
 
     /**
-     * Google OAuth login. Pass the ID token from Google Sign-In SDK.
+     * Save the user's selected skills (called from the skills onboarding screen).
+     * @param token  The JWT from login/register.
+     * @param skills List of skill name strings.
      */
-    suspend fun googleLogin(idToken: String): Result<Pair<String, UserDto>> {
+    suspend fun saveSkills(
+        token: String,
+        skills: List<String>
+    ): Result<Pair<String, UserDto>> {
         return try {
-            val response = api.googleLogin(GoogleLoginRequest(idToken))
+            val response = api.saveSkills("Bearer $token", SkillsRequest(skills))
             val envelope = response.body()
 
             when {
                 response.isSuccessful && envelope?.success == true -> {
-                    val token = envelope.data?.token
-                    val user  = envelope.data?.user
-                    if (token != null && user != null) {
-                        Result.success(Pair(token, user))
+                    val newToken = envelope.data?.token ?: token
+                    val user     = envelope.data?.user
+                    if (user != null) {
+                        Result.success(Pair(newToken, user))
                     } else {
                         Result.failure(Exception("Invalid response from server"))
                     }
                 }
                 else -> {
-                    val message = envelope?.error?.message ?: "Google Sign-In failed."
+                    val message = envelope?.error?.message ?: "Failed to save skills."
                     Result.failure(Exception(message))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(networkErrorMessage(e)))
+        }
+    }
+
+    /**
+     * Fetch the current user's profile using a JWT.
+     * Used by [GoogleAuthCallbackActivity] after receiving the token from the deep link.
+     */
+    suspend fun me(token: String): Result<Pair<String, UserDto>> {
+        return try {
+            val response = api.me("Bearer $token")
+            val envelope = response.body()
+
+            when {
+                response.isSuccessful && envelope?.success == true -> {
+                    val user = envelope.data?.user
+                    if (user != null) {
+                        Result.success(Pair(token, user))
+                    } else {
+                        Result.failure(Exception("Failed to load profile."))
+                    }
+                }
+                else -> {
+                    Result.failure(Exception("Session expired. Please log in again."))
                 }
             }
         } catch (e: Exception) {

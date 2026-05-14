@@ -2,6 +2,8 @@ package edu.cit.leanda.guildhall.auth
 
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.POST
 
 // ── Request bodies ────────────────────────────────────────────────────────────
@@ -17,8 +19,8 @@ data class LoginRequest(
     val password: String
 )
 
-data class GoogleLoginRequest(
-    val idToken: String
+data class SkillsRequest(
+    val skills: List<String>
 )
 
 // ── Response bodies ───────────────────────────────────────────────────────────
@@ -61,6 +63,23 @@ data class ApiError(
     val details: Any?
 )
 
+// ── Guild response bodies ─────────────────────────────────────────────────────
+
+data class GuildsEnvelope(
+    val success: Boolean,
+    val data: List<GuildDto>?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class GuildDto(
+    val id: Long,
+    val name: String,
+    val description: String?,
+    val memberCount: Int,
+    val questCount: Int
+)
+
 // ── Retrofit interface ────────────────────────────────────────────────────────
 
 interface ApiService {
@@ -80,9 +99,31 @@ interface ApiService {
     suspend fun login(@Body body: LoginRequest): Response<AuthEnvelope>
 
     /**
-     * POST /api/v1/auth/google
-     * Body: { idToken }
+     * POST /api/v1/auth/skills
+     * Saves skills selected on the onboarding screen.
+     * Requires Bearer token in Authorization header.
      */
-    @POST("auth/google")
-    suspend fun googleLogin(@Body body: GoogleLoginRequest): Response<AuthEnvelope>
+    @POST("auth/skills")
+    suspend fun saveSkills(
+        @Header("Authorization") bearerToken: String,
+        @Body body: SkillsRequest
+    ): Response<AuthEnvelope>
+
+    /**
+     * GET /api/v1/auth/me
+     * Fetches the current user's profile from the JWT.
+     */
+    @GET("auth/me")
+    suspend fun me(
+        @Header("Authorization") bearerToken: String
+    ): Response<AuthEnvelope>
+
+    /**
+     * GET /api/v1/guilds/my
+     * Returns the guilds the current user has joined.
+     */
+    @GET("guilds/my")
+    suspend fun myGuilds(
+        @Header("Authorization") bearerToken: String
+    ): Response<GuildsEnvelope>
 }

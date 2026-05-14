@@ -38,6 +38,9 @@ public class GoogleAuthController {
     @Value("${google.redirect.uri}")
     private String redirectUri;
 
+    @Value("${mobile.deep.link.uri}")
+    private String mobileDeepLinkUri;
+
     @Value("${frontend.url}")
     private String frontendUrl;
 
@@ -50,7 +53,12 @@ public class GoogleAuthController {
      * The frontend just navigates to this endpoint — it never calls Google itself.
      */
     @GetMapping("/init")
-    public void initiateGoogleLogin(HttpServletResponse response) throws IOException {
+    public void initiateGoogleLogin(
+            @RequestParam(defaultValue = "web") String platform,
+            HttpServletResponse response) throws IOException {
+        String normalizedPlatform = "mobile".equalsIgnoreCase(platform) ? "mobile" : "web";
+        String state = "platform:" + normalizedPlatform;
+
         String googleAuthUrl = UriComponentsBuilder
                 .fromHttpUrl("https://accounts.google.com/o/oauth2/v2/auth")
                 .queryParam("client_id", clientId)
@@ -59,6 +67,7 @@ public class GoogleAuthController {
                 .queryParam("scope", "openid email profile")
                 .queryParam("access_type", "offline")
                 .queryParam("prompt", "select_account")
+                .queryParam("state", state)
                 .build()
                 .toUriString();
 
@@ -81,25 +90,45 @@ public class GoogleAuthController {
     public void handleGoogleCallback(
             @RequestParam(required = false) String code,
             @RequestParam(required = false) String error,
+            @RequestParam(required = false) String state,
             HttpServletResponse response) throws IOException {
+
+        String platform = "web";
+        if (state != null && state.startsWith("platform:")) {
+            platform = state.substring("platform:".length());
+        }
 
         // User denied consent or something went wrong on Google's side
         if (error != null || code == null) {
-            response.sendRedirect(frontendUrl + "/login?error=google_denied");
+            String errorRedirect = "mobile".equalsIgnoreCase(platform)
+                    ? UriComponentsBuilder.fromUriString(mobileDeepLinkUri)
+                            .queryParam("error", "google_denied")
+                            .build()
+                            .toUriString()
+                    : frontendUrl + "/login?error=google_denied";
+            response.sendRedirect(errorRedirect);
             return;
         }
 
         try {
             AuthResponse authResponse = googleAuthService.googleLoginWithCode(code);
 
-            // Build redirect URL back to the React app
-            // The frontend reads the token from the URL on mount and stores it
-            String redirectUrl = UriComponentsBuilder
-                    .fromHttpUrl(frontendUrl + "/auth/google/success")
-                    .queryParam("token", authResponse.getToken())
-                    .queryParam("newUser", authResponse.getUser().isNewUser())
-                    .build()
-                    .toUriString();
+            String redirectUrl;
+            if ("mobile".equalsIgnoreCase(platform)) {
+                redirectUrl = UriComponentsBuilder
+                        .fromUriString(mobileDeepLinkUri)
+                        .queryParam("token", authResponse.getToken())
+                        .queryParam("newUser", authResponse.getUser().isNewUser())
+                        .build()
+                        .toUriString();
+            } else {
+                redirectUrl = UriComponentsBuilder
+                        .fromHttpUrl(frontendUrl + "/auth/google/success")
+                        .queryParam("token", authResponse.getToken())
+                        .queryParam("newUser", authResponse.getUser().isNewUser())
+                        .build()
+                        .toUriString();
+            }
 
             response.sendRedirect(redirectUrl);
 
@@ -108,7 +137,13 @@ public class GoogleAuthController {
             String encodedMsg = URLEncoder.encode(
                     ex.getMessage() != null ? ex.getMessage() : "Google login failed",
                     StandardCharsets.UTF_8);
-            response.sendRedirect(frontendUrl + "/login?error=" + encodedMsg);
+            String errorRedirect = "mobile".equalsIgnoreCase(platform)
+                    ? UriComponentsBuilder.fromUriString(mobileDeepLinkUri)
+                            .queryParam("error", encodedMsg)
+                            .build()
+                            .toUriString()
+                    : frontendUrl + "/login?error=" + encodedMsg;
+            response.sendRedirect(errorRedirect);
         }
     }
 }

@@ -27,6 +27,15 @@
     <string name="have_account">Already have an account? </string>
     <string name="link_login">Sign in instead</string>
 
+    <!-- Skills -->
+    <string name="btn_skip">Skip for now</string>
+    <string name="btn_continue">Continue</string>
+    <string name="btn_saving">Saving…</string>
+
+    <!-- Guilds -->
+    <string name="guilds_empty_none">You have not joined any guilds yet.</string>
+    <string name="guilds_empty_search">No guilds match your search.</string>
+
     <!-- Validation errors -->
     <string name="error_field_required">This field is required</string>
     <string name="error_invalid_email">Enter a valid email address</string>
