@@ -36,7 +36,6 @@ android {
         jvmTarget = "1.8"
     }
 
-    // ── XML view binding (lets you skip findViewById boilerplate later if you want) ──
     buildFeatures {
         viewBinding = true
     }
@@ -60,8 +59,8 @@ dependencies {
     // ── Coroutines ────────────────────────────────────────────────────────────
     implementation(libs.coroutines.android)
 
-    // ── Google Sign-In ────────────────────────────────────────────────────────
-    implementation(libs.google.auth)
+    // ── Browser (Chrome Custom Tabs for backend-driven Google OAuth) ──────────
+    implementation("androidx.browser:browser:1.8.0")
 
     // ── Tests ─────────────────────────────────────────────────────────────────
     testImplementation(libs.junit)

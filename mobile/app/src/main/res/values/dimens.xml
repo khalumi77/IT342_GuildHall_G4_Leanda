@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Skill chip stroke widths — used programmatically in SkillsActivity -->
+    <dimen name="stroke_default">2dp</dimen>
+    <dimen name="stroke_selected">2dp</dimen>
+</resources>

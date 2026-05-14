@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Primary brand colors (match web) -->
+    <!-- Primary brand colors -->
     <color name="primary_green">#34C759</color>
     <color name="secondary_green">#52734D</color>
     <color name="light_green">#DDFFBC</color>
@@ -25,7 +25,7 @@
     <color name="border_default">#DDDDDD</color>
     <color name="border_focus">#34C759</color>
 
-    <!-- Left panel -->
+    <!-- Left panel / navbar -->
     <color name="panel_bg">#52734D</color>
     <color name="panel_feature_bg">#4A6644</color>
 
@@ -34,6 +34,9 @@
 
     <!-- Status bar -->
     <color name="status_bar">#3A5C36</color>
+
+    <!-- Skill chip -->
+    <color name="skill_chip_selected_bg">#F0FFF4</color>
 
     <!-- Transparent -->
     <color name="transparent">#00000000</color>

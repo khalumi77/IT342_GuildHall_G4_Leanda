@@ -10,14 +10,13 @@ import java.util.concurrent.TimeUnit
  * Singleton Retrofit client.
  *
  * BASE_URL points to the same Spring Boot backend used by the web app.
- * Change to your machine's LAN IP when testing on a real device
- * (10.0.2.2 is the Android emulator's alias for localhost).
+ * Change to your machine's LAN IP when testing on a real device.
+ * (10.0.2.2 is the Android emulator's alias for localhost)
  */
 object RetrofitClient {
 
-    // ── ⚠️  Im using my laptop's LAN IP since I'm running on a physical device ──
-    //
-    private const val BASE_URL = "http://192.168.1.9:8080/api/v1/"
+    // ⚠️ Using LAN IP for physical device testing — change as needed
+    private const val BASE_URL = "http://192.168.1.10:8080/api/v1/"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY   // change to NONE for release
@@ -38,4 +37,7 @@ object RetrofitClient {
             .build()
             .create(ApiService::class.java)
     }
+
+    /** The base URL without the /api/v1/ suffix — used to build the Google OAuth init URL. */
+    val serverBaseUrl: String = BASE_URL.removeSuffix("api/v1/")
 }
