@@ -3,6 +3,7 @@ package edu.cit.leanda.guildhall.guild
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import edu.cit.leanda.guildhall.R
@@ -11,13 +12,15 @@ class GuildAdapter(
     private var guilds: List<GuildItem>
 ) : RecyclerView.Adapter<GuildAdapter.GuildViewHolder>() {
 
-    var onGuildClick: ((GuildItem) -> Unit)? = null
+    var onGuildClick:  ((GuildItem) -> Unit)? = null
+    var onLeaveClick:  ((GuildItem) -> Unit)? = null
 
     inner class GuildViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val tvName: TextView        = itemView.findViewById(R.id.tvGuildName)
+        val tvName:        TextView = itemView.findViewById(R.id.tvGuildName)
         val tvMemberCount: TextView = itemView.findViewById(R.id.tvMemberCount)
-        val tvQuestCount: TextView  = itemView.findViewById(R.id.tvQuestCount)
+        val tvQuestCount:  TextView = itemView.findViewById(R.id.tvQuestCount)
         val tvDescription: TextView = itemView.findViewById(R.id.tvGuildDescription)
+        val btnMenu:       TextView = itemView.findViewById(R.id.btnMenu)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): GuildViewHolder {
@@ -28,6 +31,7 @@ class GuildAdapter(
 
     override fun onBindViewHolder(holder: GuildViewHolder, position: Int) {
         val guild = guilds[position]
+
         holder.tvName.text        = guild.name
         holder.tvMemberCount.text = guild.memberCount.toString()
         holder.tvQuestCount.text  = guild.questCount.toString()
@@ -39,8 +43,16 @@ class GuildAdapter(
             holder.tvDescription.text       = guild.description
         }
 
-        holder.itemView.setOnClickListener {
-            onGuildClick?.invoke(guild)
+        holder.itemView.setOnClickListener { onGuildClick?.invoke(guild) }
+
+        holder.btnMenu.setOnClickListener { anchor ->
+            val popup = PopupMenu(anchor.context, anchor)
+            popup.menu.add(0, 0, 0, "Leave Guild")
+            popup.setOnMenuItemClickListener {
+                if (it.itemId == 0) onLeaveClick?.invoke(guild)
+                true
+            }
+            popup.show()
         }
     }
 

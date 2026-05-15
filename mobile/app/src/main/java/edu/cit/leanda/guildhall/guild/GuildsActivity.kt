@@ -2,7 +2,10 @@ package edu.cit.leanda.guildhall.guild
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
+import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -16,23 +19,14 @@ import edu.cit.leanda.guildhall.auth.RetrofitClient
 import edu.cit.leanda.guildhall.util.SessionManager
 import kotlinx.coroutines.launch
 
-/**
- * GuildsActivity — "My Guilds" screen.
- *
- * Mirrors the web GuildsPage component:
- *  - Navbar with logo + profile dropdown (simplified to logout button)
- *  - Search field to filter guilds by name
- *  - RecyclerView of guild cards showing name, member count, quest count
- *  - Empty state when no guilds or no search results
- *  - "Browse more guilds" button (placeholder for now)
- */
 class GuildsActivity : AppCompatActivity() {
 
     private lateinit var sessionManager: SessionManager
 
     private lateinit var tvUsername: TextView
     private lateinit var btnLogout: TextView
-    private lateinit var etSearch: android.widget.EditText
+    private lateinit var btnBrowse: TextView
+    private lateinit var etSearch: EditText
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var tvEmpty: TextView
@@ -49,7 +43,6 @@ class GuildsActivity : AppCompatActivity() {
 
         sessionManager = SessionManager(this)
 
-        // If somehow not logged in, go back to login
         if (!sessionManager.isLoggedIn()) {
             startActivity(Intent(this, LoginActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -64,9 +57,17 @@ class GuildsActivity : AppCompatActivity() {
         loadGuilds()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Refresh the list when returning from BrowseGuildsActivity
+        // so newly joined guilds appear immediately
+        if (::adapter.isInitialized) loadGuilds()
+    }
+
     private fun bindViews() {
         tvUsername     = findViewById(R.id.tvUsername)
         btnLogout      = findViewById(R.id.btnLogout)
+        btnBrowse      = findViewById(R.id.btnBrowse)
         etSearch       = findViewById(R.id.etSearch)
         recyclerView   = findViewById(R.id.recyclerView)
         progressBar    = findViewById(R.id.progressBar)
@@ -80,6 +81,7 @@ class GuildsActivity : AppCompatActivity() {
 
     private fun setupRecyclerView() {
         adapter = GuildAdapter(emptyList())
+        adapter.onLeaveClick = { guild -> showLeaveConfirmDialog(guild) }
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
     }
@@ -93,15 +95,16 @@ class GuildsActivity : AppCompatActivity() {
             finish()
         }
 
-        btnRetry.setOnClickListener {
-            loadGuilds()
+        btnBrowse.setOnClickListener {
+            startActivity(Intent(this, BrowseGuildsActivity::class.java))
         }
 
-        // Live search filter
-        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+        btnRetry.setOnClickListener { loadGuilds() }
+
+        etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
+            override fun afterTextChanged(s: Editable?) {
                 filterGuilds(s?.toString() ?: "")
             }
         })
@@ -109,7 +112,6 @@ class GuildsActivity : AppCompatActivity() {
 
     private fun loadGuilds() {
         val token = sessionManager.getToken() ?: return
-
         hideError()
         setLoading(true)
 
@@ -136,44 +138,59 @@ class GuildsActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 setLoading(false)
-                showError(
-                    when {
-                        e.message?.contains("Unable to resolve host") == true ->
-                            "Cannot reach server. Check your internet connection."
-                        else -> e.message ?: "An unexpected error occurred."
-                    }
-                )
+                showError(e.message ?: "An unexpected error occurred.")
+            }
+        }
+    }
+
+    private fun showLeaveConfirmDialog(guild: GuildItem) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Leave \"${guild.name}\"?")
+            .setMessage("Are you sure you want to leave this guild?")
+            .setPositiveButton("Leave Guild") { _, _ -> leaveGuild(guild) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun leaveGuild(guild: GuildItem) {
+        val token = sessionManager.getToken() ?: return
+        lifecycleScope.launch {
+            try {
+                val response = RetrofitClient.apiService.leaveGuild("Bearer $token", guild.id)
+                if (response.isSuccessful) {
+                    allGuilds.removeAll { it.id == guild.id }
+                    filterGuilds(etSearch.text?.toString() ?: "")
+                } else {
+                    showError("Failed to leave guild. Please try again.")
+                }
+            } catch (e: Exception) {
+                showError(e.message ?: "An unexpected error occurred.")
             }
         }
     }
 
     private fun filterGuilds(query: String) {
-        val filtered = if (query.isBlank()) {
-            allGuilds.toList()
-        } else {
-            allGuilds.filter {
-                it.name.contains(query, ignoreCase = true) ||
-                        it.description.contains(query, ignoreCase = true)
-            }
-        }
+        val filtered = if (query.isBlank()) allGuilds.toList()
+        else allGuilds.filter { it.name.contains(query, ignoreCase = true) }
+
         adapter.updateData(filtered)
 
-        tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
-        tvEmpty.text = when {
-            allGuilds.isEmpty() -> getString(R.string.guilds_empty_none)
-            else                -> getString(R.string.guilds_empty_search)
-        }
-        recyclerView.visibility = if (filtered.isEmpty()) View.GONE else View.VISIBLE
+        tvEmpty.visibility      = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        recyclerView.visibility = if (filtered.isEmpty()) View.GONE   else View.VISIBLE
+        tvEmpty.text = if (allGuilds.isEmpty()) getString(R.string.guilds_empty_none)
+        else getString(R.string.guilds_empty_search)
     }
 
     private fun setLoading(loading: Boolean) {
         progressBar.visibility  = if (loading) View.VISIBLE else View.GONE
-        recyclerView.visibility = if (loading) View.GONE else recyclerView.visibility
-        tvEmpty.visibility      = if (loading) View.GONE else tvEmpty.visibility
+        if (loading) {
+            recyclerView.visibility = View.GONE
+            tvEmpty.visibility      = View.GONE
+        }
     }
 
     private fun showError(message: String) {
-        tvError.text           = message
+        tvError.text              = message
         errorContainer.visibility = View.VISIBLE
         recyclerView.visibility   = View.GONE
         tvEmpty.visibility        = View.GONE
