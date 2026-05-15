@@ -11,6 +11,14 @@
         <item name="android:fontFamily">sans-serif</item>
     </style>
 
+    <!-- Dialog theme — transparent window so bg_dialog corners show -->
+    <style name="Theme.GuildHall.Dialog" parent="Theme.MaterialComponents.Light.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="colorPrimary">@color/primary_green</item>
+        <item name="colorAccent">@color/primary_green</item>
+    </style>
+
     <!-- ── Primary button ── -->
     <style name="Widget.GuildHall.Button.Primary" parent="Widget.MaterialComponents.Button">
         <item name="android:backgroundTint">@color/primary_green</item>
@@ -42,12 +50,6 @@
     </style>
 
     <!-- ── Skill chip button ── -->
-    <!--
-        Used in activity_skills.xml for each skill tile.
-        White background, rounded corners, default grey border.
-        Selected state is applied programmatically in SkillsActivity
-        by changing backgroundTint and strokeColor.
-    -->
     <style name="Widget.GuildHall.SkillChip" parent="Widget.MaterialComponents.Button.OutlinedButton">
         <item name="android:backgroundTint">@color/surface_white</item>
         <item name="android:textColor">@color/text_primary</item>
@@ -61,7 +63,6 @@
         <item name="android:paddingBottom">16dp</item>
         <item name="android:elevation">0dp</item>
         <item name="android:stateListAnimator">@null</item>
-        <!-- Allow newlines in button text for the emoji + label layout -->
         <item name="android:gravity">center</item>
     </style>
 

@@ -32,9 +32,7 @@
         <!--
             GoogleAuthCallbackActivity — catches the deep link redirect from the backend
             after the server-side Google OAuth2 flow completes.
-
-            The backend redirects to: guildhall://auth/google/success?token=...&newUser=...
-            This activity intercepts that URL, extracts the JWT, and navigates accordingly.
+            Deep link: guildhall://auth/google/success?token=...&newUser=...
         -->
         <activity
             android:name=".auth.GoogleAuthCallbackActivity"
@@ -44,7 +42,6 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- Custom scheme deep link: guildhall://auth/google/success -->
                 <data
                     android:scheme="guildhall"
                     android:host="auth"
@@ -52,23 +49,27 @@
             </intent-filter>
         </activity>
 
-        <!-- Skills selection — shown after first-time Google or email registration -->
+        <!-- Skills selection -->
         <activity
             android:name=".skills.SkillsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- Guilds list -->
+        <!-- My Guilds list -->
         <activity
             android:name=".guild.GuildsActivity"
             android:exported="false" />
 
-        <!-- Welcome placeholder (kept for now) -->
+        <!-- Browse all guilds -->
+        <activity
+            android:name=".guild.BrowseGuildsActivity"
+            android:exported="false" />
+
+        <!-- Welcome placeholder -->
         <activity
             android:name=".WelcomeActivity"
             android:exported="false" />
 
-        <!-- Main stub that redirects to GuildsActivity -->
         <activity
             android:name=".MainActivity"
             android:exported="false" />
