@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import edu.cit.leanda.guildhall.R
 import edu.cit.leanda.guildhall.auth.RetrofitClient
+import edu.cit.leanda.guildhall.util.GuildHallNavbar
 import edu.cit.leanda.guildhall.util.SessionManager
 import kotlinx.coroutines.launch
 
@@ -59,6 +60,7 @@ class BrowseGuildsActivity : AppCompatActivity() {
         errorContainer = findViewById(R.id.errorContainer)
         tvError        = findViewById(R.id.tvError)
         btnRetry       = findViewById(R.id.btnRetry)
+        GuildHallNavbar.setup(this, findViewById(R.id.btnChat), findViewById(R.id.btnProfile))
     }
 
     private fun setupRecyclerView() {

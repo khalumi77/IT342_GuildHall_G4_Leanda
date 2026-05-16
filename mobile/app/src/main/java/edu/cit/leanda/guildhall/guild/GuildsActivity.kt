@@ -16,6 +16,7 @@ import com.google.android.material.button.MaterialButton
 import edu.cit.leanda.guildhall.R
 import edu.cit.leanda.guildhall.auth.LoginActivity
 import edu.cit.leanda.guildhall.auth.RetrofitClient
+import edu.cit.leanda.guildhall.util.GuildHallNavbar
 import edu.cit.leanda.guildhall.util.SessionManager
 import kotlinx.coroutines.launch
 
@@ -23,8 +24,8 @@ class GuildsActivity : AppCompatActivity() {
 
     private lateinit var sessionManager: SessionManager
 
-    private lateinit var tvUsername: TextView
-    private lateinit var btnLogout: TextView
+    private lateinit var btnChat: TextView
+    private lateinit var btnProfile: TextView
     private lateinit var btnBrowse: TextView
     private lateinit var etSearch: EditText
     private lateinit var recyclerView: RecyclerView
@@ -65,8 +66,8 @@ class GuildsActivity : AppCompatActivity() {
     }
 
     private fun bindViews() {
-        tvUsername     = findViewById(R.id.tvUsername)
-        btnLogout      = findViewById(R.id.btnLogout)
+        btnChat        = findViewById(R.id.btnChat)
+        btnProfile     = findViewById(R.id.btnProfile)
         btnBrowse      = findViewById(R.id.btnBrowse)
         etSearch       = findViewById(R.id.etSearch)
         recyclerView   = findViewById(R.id.recyclerView)
@@ -75,26 +76,23 @@ class GuildsActivity : AppCompatActivity() {
         errorContainer = findViewById(R.id.errorContainer)
         tvError        = findViewById(R.id.tvError)
         btnRetry       = findViewById(R.id.btnRetry)
-
-        tvUsername.text = sessionManager.getUsername() ?: "adventurer"
+        GuildHallNavbar.setup(this, btnChat, btnProfile)
     }
 
     private fun setupRecyclerView() {
         adapter = GuildAdapter(emptyList())
+        adapter.onGuildClick = { guild ->
+            startActivity(Intent(this, GuildDashboardActivity::class.java).apply {
+                putExtra("guildId", guild.id)
+                putExtra("guildName", guild.name)
+            })
+        }
         adapter.onLeaveClick = { guild -> showLeaveConfirmDialog(guild) }
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
     }
 
     private fun setupListeners() {
-        btnLogout.setOnClickListener {
-            sessionManager.clearSession()
-            startActivity(Intent(this, LoginActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            })
-            finish()
-        }
-
         btnBrowse.setOnClickListener {
             startActivity(Intent(this, BrowseGuildsActivity::class.java))
         }

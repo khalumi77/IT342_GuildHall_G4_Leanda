@@ -32,6 +32,25 @@
             android:textColor="@color/surface_white"
             android:textSize="20sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btnChat"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:paddingHorizontal="10dp"
+            android:text="Chat"
+            android:textColor="@color/surface_white"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btnProfile"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="@drawable/bg_logout_btn"
+            android:gravity="center"
+            android:textColor="@color/surface_white"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- Content -->

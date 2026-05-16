@@ -1,5 +1,6 @@
 package edu.cit.leanda.guildhall.auth
 
+import java.io.Serializable
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -7,6 +8,8 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.PUT
+import retrofit2.http.Query
 
 // ── Request bodies ────────────────────────────────────────────────────────────
 
@@ -23,6 +26,26 @@ data class LoginRequest(
 
 data class SkillsRequest(
     val skills: List<String>
+)
+
+data class CreateQuestRequest(
+    val title: String,
+    val category: String,
+    val description: String,
+    val questType: String,
+    val reward: Double?,
+    val xpReward: Int,
+    val attachmentName: String?,
+    val attachmentPath: String?
+)
+
+data class UpdateProfileRequest(
+    val bio: String? = null,
+    val profilePictureUrl: String? = null
+)
+
+data class SendMessageRequest(
+    val content: String
 )
 
 // ── Response bodies ───────────────────────────────────────────────────────────
@@ -117,8 +140,9 @@ data class QuestDto(
     // Extra fields present on /quests/mine and /quests/accepted
     val guildId: Long?,
     val guildName: String?,
-    val helperUsernameAlt: String?  // helperUsername from /quests/mine extra map
-)
+    val helperUsernameAlt: String?,  // helperUsername from /quests/mine extra map
+    val posterUsername: String?
+) : Serializable
 
 data class QuestEnvelope(
     val success: Boolean,
@@ -126,6 +150,87 @@ data class QuestEnvelope(
     val error: ApiError?,
     val timestamp: String?
 )
+
+data class PaymentSessionEnvelope(
+    val success: Boolean,
+    val data: PaymentSessionDto?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class PaymentSessionDto(
+    val sessionId: String?,
+    val checkoutUrl: String?
+) : Serializable
+
+data class ConversationsEnvelope(
+    val success: Boolean,
+    val data: List<ConversationDto>?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class ConversationEnvelope(
+    val success: Boolean,
+    val data: ConversationDto?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class MessagesEnvelope(
+    val success: Boolean,
+    val data: List<MessageDto>?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class MessageEnvelope(
+    val success: Boolean,
+    val data: MessageDto?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class UserSearchEnvelope(
+    val success: Boolean,
+    val data: List<UserSearchResultDto>?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class ConversationDto(
+    val conversationId: Long,
+    val otherUserId: Long,
+    val otherUsername: String,
+    val otherProfilePicture: String?,
+    val lastMessage: String?,
+    val lastMessageType: String?,
+    val lastMessageAt: String?,
+    val unreadCount: Int
+) : Serializable
+
+data class MessageDto(
+    val id: Long,
+    val conversationId: Long,
+    val senderId: Long,
+    val senderUsername: String,
+    val senderProfilePicture: String?,
+    val content: String,
+    val messageType: String,
+    val questId: Long?,
+    val guildId: Long?,
+    val questTitle: String?,
+    val guildName: String?,
+    val isRead: Boolean,
+    val sentAt: String?
+) : Serializable
+
+data class UserSearchResultDto(
+    val id: Long,
+    val username: String,
+    val profilePictureUrl: String?,
+    val rank: String
+) : Serializable
 
 // ── Retrofit interface ────────────────────────────────────────────────────────
 
@@ -149,6 +254,12 @@ interface ApiService {
     suspend fun me(
         @Header("Authorization") bearerToken: String
     ): Response<AuthEnvelope>
+
+    @PUT("profile/me")
+    suspend fun updateProfile(
+        @Header("Authorization") bearerToken: String,
+        @Body body: UpdateProfileRequest
+    ): Response<SimpleEnvelope>
 
     // ── Guilds ────────────────────────────────────────────────────────────────
 
@@ -187,6 +298,13 @@ interface ApiService {
         @Path("guildId") guildId: Long
     ): Response<QuestsEnvelope>
 
+    @POST("guilds/{guildId}/quests")
+    suspend fun createQuest(
+        @Header("Authorization") bearerToken: String,
+        @Path("guildId") guildId: Long,
+        @Body body: CreateQuestRequest
+    ): Response<QuestEnvelope>
+
     /** POST /guilds/{guildId}/quests/{questId}/accept */
     @POST("guilds/{guildId}/quests/{questId}/accept")
     suspend fun acceptQuest(
@@ -222,4 +340,46 @@ interface ApiService {
     suspend fun myAcceptedQuests(
         @Header("Authorization") bearerToken: String
     ): Response<QuestsEnvelope>
+
+    @POST("payments/create-session/{questId}")
+    suspend fun createPaymentSession(
+        @Header("Authorization") bearerToken: String,
+        @Path("questId") questId: Long
+    ): Response<PaymentSessionEnvelope>
+
+    @GET("chat/conversations")
+    suspend fun getConversations(
+        @Header("Authorization") bearerToken: String
+    ): Response<ConversationsEnvelope>
+
+    @POST("chat/conversations/{otherUserId}")
+    suspend fun openConversation(
+        @Header("Authorization") bearerToken: String,
+        @Path("otherUserId") otherUserId: Long
+    ): Response<ConversationEnvelope>
+
+    @GET("chat/conversations/{conversationId}/messages")
+    suspend fun getMessages(
+        @Header("Authorization") bearerToken: String,
+        @Path("conversationId") conversationId: Long
+    ): Response<MessagesEnvelope>
+
+    @POST("chat/conversations/{conversationId}/messages")
+    suspend fun sendMessage(
+        @Header("Authorization") bearerToken: String,
+        @Path("conversationId") conversationId: Long,
+        @Body body: SendMessageRequest
+    ): Response<MessageEnvelope>
+
+    @POST("chat/conversations/{conversationId}/read")
+    suspend fun markAsRead(
+        @Header("Authorization") bearerToken: String,
+        @Path("conversationId") conversationId: Long
+    ): Response<SimpleEnvelope>
+
+    @GET("chat/users/search")
+    suspend fun searchUsers(
+        @Header("Authorization") bearerToken: String,
+        @Query("q") query: String
+    ): Response<UserSearchEnvelope>
 }

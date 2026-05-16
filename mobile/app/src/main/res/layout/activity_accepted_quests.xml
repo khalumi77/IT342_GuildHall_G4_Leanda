@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:orientation="vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:background="@color/panel_bg" android:gravity="center_vertical" android:orientation="horizontal" android:paddingHorizontal="16dp">
+        <TextView android:id="@+id/btnBack" android:layout_width="42dp" android:layout_height="42dp" android:gravity="center" android:text="&lt;" android:textColor="@color/surface_white" android:textSize="24sp" android:textStyle="bold" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Accepted Quests" android:textColor="@color/surface_white" android:textSize="19sp" android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="16dp">
+        <TextView android:id="@+id/tvInProgress" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="8dp" android:layout_weight="1" android:background="@drawable/bg_chip_amber" android:gravity="center" android:padding="10dp" android:textColor="#92400E" android:textStyle="bold" />
+        <TextView android:id="@+id/tvCompleted" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="8dp" android:layout_weight="1" android:background="@drawable/bg_chip_blue" android:gravity="center" android:padding="10dp" android:textColor="#1E40AF" android:textStyle="bold" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:background="@drawable/bg_chip_green" android:gravity="center" android:padding="10dp" android:text="Max per Guild: 3" android:textColor="#166534" android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/tabRow" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingHorizontal="16dp" />
+    <ProgressBar android:id="@+id/progressBar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="12dp" android:indeterminate="true" android:indeterminateTint="@color/primary_green" android:visibility="gone" />
+    <TextView android:id="@+id/tvEmpty" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:paddingVertical="64dp" android:textColor="@color/text_hint" android:textSize="15sp" android:visibility="gone" />
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/recyclerView" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:clipToPadding="false" android:padding="20dp" />
+</LinearLayout>
