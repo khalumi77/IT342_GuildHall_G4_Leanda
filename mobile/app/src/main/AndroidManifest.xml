@@ -65,6 +65,41 @@
             android:name=".guild.BrowseGuildsActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".guild.GuildDashboardActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".quest.CommissionedQuestsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".quest.AcceptedQuestsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".quest.ImageViewerActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".profile.ProfileActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".chat.ChatActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".chat.ConversationActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".admin.AdminDashboardActivity"
+            android:exported="false" />
+
         <!-- Welcome placeholder -->
         <activity
             android:name=".WelcomeActivity"

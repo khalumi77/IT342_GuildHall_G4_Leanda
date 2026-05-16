@@ -35,26 +35,27 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
-        <!-- Username display -->
         <TextView
-            android:id="@+id/tvUsername"
+            android:id="@+id/btnChat"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
-            android:textColor="#CCFFFFFF"
-            android:textSize="13sp" />
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="8dp"
+            android:text="Chat"
+            android:textColor="@color/surface_white"
+            android:textSize="13sp"
+            android:textStyle="bold" />
 
-        <!-- Logout button -->
         <TextView
-            android:id="@+id/btnLogout"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:id="@+id/btnProfile"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
             android:background="@drawable/bg_logout_btn"
             android:clickable="true"
             android:focusable="true"
-            android:paddingHorizontal="14dp"
-            android:paddingVertical="6dp"
-            android:text="Log Out"
+            android:gravity="center"
             android:textColor="@color/surface_white"
             android:textSize="13sp"
             android:textStyle="bold" />

@@ -60,6 +60,11 @@ class SessionManager(context: Context) {
     fun getUsername(): String?  = prefs.getString(KEY_USERNAME, null)
     fun getEmail(): String?     = prefs.getString(KEY_EMAIL, null)
     fun getRole(): String?      = prefs.getString(KEY_ROLE, null)
+    fun getUserId(): Long       = prefs.getLong(KEY_USER_ID, -1L)
+    fun getLevel(): Int         = prefs.getInt(KEY_LEVEL, 1)
+    fun getXp(): Int            = prefs.getInt(KEY_XP, 0)
+    fun getRank(): String?      = prefs.getString(KEY_RANK, "Bronze")
+    fun getProfilePictureUrl(): String? = prefs.getString(KEY_PROFILE_PIC, null)
     fun isNewUser(): Boolean    = prefs.getBoolean(KEY_NEW_USER, false)
     fun isGuildmaster(): Boolean = getRole() == "ROLE_GUILDMASTER"
     fun getSkills(): List<String> {
