@@ -72,6 +72,7 @@ public class PaymentController {
     @PostMapping("/create-session/{questId}")
     public ResponseEntity<?> createCheckoutSession(
             @PathVariable Long questId,
+            @RequestParam(defaultValue = "web") String platform,
             @AuthenticationPrincipal UserDetails userDetails) {
 
         User payer = userRepository.findByEmail(userDetails.getUsername())
@@ -132,10 +133,15 @@ public class PaymentController {
                     "quantity", 1
             )));
             attributes.put("payment_method_types", List.of("card", "gcash", "paymaya"));
-            attributes.put("success_url",
-                    frontendUrl + "/payment/success?quest_id=" + questId);
-            attributes.put("cancel_url",
-                    frontendUrl + "/payment/cancel?quest_id=" + questId);
+            boolean mobile = "mobile".equalsIgnoreCase(platform);
+            String successUrl = mobile
+                    ? "guildhall://payment/success?quest_id=" + questId
+                    : frontendUrl + "/payment/success?quest_id=" + questId;
+            String cancelUrl = mobile
+                    ? "guildhall://payment/cancel?quest_id=" + questId
+                    : frontendUrl + "/payment/cancel?quest_id=" + questId;
+            attributes.put("success_url", successUrl);
+            attributes.put("cancel_url", cancelUrl);
             attributes.put("description",
                     "GuildHall Quest Payment — " + quest.getTitle());
             // Store our quest ID in metadata so we can retrieve it in the webhook

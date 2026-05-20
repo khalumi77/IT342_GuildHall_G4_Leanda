@@ -84,16 +84,12 @@ data class ApiError(
     val details: Any?
 )
 
-// ── Generic envelope for simple success/error responses ───────────────────────
-
 data class SimpleEnvelope(
     val success: Boolean,
     val data: Any?,
     val error: ApiError?,
     val timestamp: String?
 )
-
-// ── Guild response bodies ─────────────────────────────────────────────────────
 
 data class GuildsEnvelope(
     val success: Boolean,
@@ -108,10 +104,8 @@ data class GuildDto(
     val description: String?,
     val memberCount: Int,
     val questCount: Int,
-    val isMember: Boolean?        // present on /guilds (all), absent on /guilds/my
+    val isMember: Boolean?
 )
-
-// ── Quest response bodies ─────────────────────────────────────────────────────
 
 data class QuestsEnvelope(
     val success: Boolean,
@@ -125,10 +119,10 @@ data class QuestDto(
     val title: String,
     val category: String,
     val description: String,
-    val questType: String,          // "VOLUNTEER" | "PAID"
+    val questType: String,
     val reward: Double?,
     val xpReward: Int,
-    val status: String,             // "OPEN" | "PENDING" | "COMPLETED" | "PENDING_PAYMENT"
+    val status: String,
     val postedBy: String,
     val posterId: Long,
     val createdAt: String?,
@@ -137,10 +131,9 @@ data class QuestDto(
     val helperUsername: String?,
     val helperId: Long?,
     val acceptedByMe: Boolean?,
-    // Extra fields present on /quests/mine and /quests/accepted
     val guildId: Long?,
     val guildName: String?,
-    val helperUsernameAlt: String?,  // helperUsername from /quests/mine extra map
+    val helperUsernameAlt: String?,
     val posterUsername: String?
 ) : Serializable
 
@@ -196,6 +189,18 @@ data class UserSearchEnvelope(
     val data: List<UserSearchResultDto>?,
     val error: ApiError?,
     val timestamp: String?
+)
+
+data class WisdomEnvelope(
+    val success: Boolean,
+    val data: WisdomDto?,
+    val error: ApiError?,
+    val timestamp: String?
+)
+
+data class WisdomDto(
+    val text: String?,
+    val author: String?
 )
 
 data class ConversationDto(
@@ -263,26 +268,22 @@ interface ApiService {
 
     // ── Guilds ────────────────────────────────────────────────────────────────
 
-    /** GET /guilds/my — guilds the user has joined */
     @GET("guilds/my")
     suspend fun myGuilds(
         @Header("Authorization") bearerToken: String
     ): Response<GuildsEnvelope>
 
-    /** GET /guilds — ALL guilds (for Browse screen) */
     @GET("guilds")
     suspend fun allGuilds(
         @Header("Authorization") bearerToken: String
     ): Response<GuildsEnvelope>
 
-    /** POST /guilds/{id}/join */
     @POST("guilds/{id}/join")
     suspend fun joinGuild(
         @Header("Authorization") bearerToken: String,
         @Path("id") guildId: Long
     ): Response<SimpleEnvelope>
 
-    /** DELETE /guilds/{id}/leave */
     @DELETE("guilds/{id}/leave")
     suspend fun leaveGuild(
         @Header("Authorization") bearerToken: String,
@@ -291,12 +292,16 @@ interface ApiService {
 
     // ── Quests ────────────────────────────────────────────────────────────────
 
-    /** GET /guilds/{guildId}/quests */
     @GET("guilds/{guildId}/quests")
     suspend fun getQuests(
         @Header("Authorization") bearerToken: String,
         @Path("guildId") guildId: Long
     ): Response<QuestsEnvelope>
+
+    @GET("wisdom")
+    suspend fun getWisdom(
+        @Header("Authorization") bearerToken: String
+    ): Response<WisdomEnvelope>
 
     @POST("guilds/{guildId}/quests")
     suspend fun createQuest(
@@ -305,7 +310,6 @@ interface ApiService {
         @Body body: CreateQuestRequest
     ): Response<QuestEnvelope>
 
-    /** POST /guilds/{guildId}/quests/{questId}/accept */
     @POST("guilds/{guildId}/quests/{questId}/accept")
     suspend fun acceptQuest(
         @Header("Authorization") bearerToken: String,
@@ -313,7 +317,6 @@ interface ApiService {
         @Path("questId") questId: Long
     ): Response<QuestEnvelope>
 
-    /** POST /guilds/{guildId}/quests/{questId}/complete */
     @POST("guilds/{guildId}/quests/{questId}/complete")
     suspend fun completeQuest(
         @Header("Authorization") bearerToken: String,
@@ -321,7 +324,6 @@ interface ApiService {
         @Path("questId") questId: Long
     ): Response<QuestEnvelope>
 
-    /** DELETE /guilds/{guildId}/quests/{questId} */
     @DELETE("guilds/{guildId}/quests/{questId}")
     suspend fun deleteQuest(
         @Header("Authorization") bearerToken: String,
@@ -329,23 +331,21 @@ interface ApiService {
         @Path("questId") questId: Long
     ): Response<SimpleEnvelope>
 
-    /** GET /quests/mine — quests the user has commissioned */
     @GET("quests/mine")
     suspend fun myCommissionedQuests(
         @Header("Authorization") bearerToken: String
     ): Response<QuestsEnvelope>
 
-    /** GET /quests/accepted — quests the user has accepted */
     @GET("quests/accepted")
     suspend fun myAcceptedQuests(
         @Header("Authorization") bearerToken: String
     ): Response<QuestsEnvelope>
 
-    @POST("payments/create-session/{questId}")
-    suspend fun createPaymentSession(
-        @Header("Authorization") bearerToken: String,
-        @Path("questId") questId: Long
-    ): Response<PaymentSessionEnvelope>
+    // ── Payment — NOTE: uses /api/payments/ NOT /api/v1/payments/ ─────────────
+    // This is handled by PaymentRetrofitClient, not the regular ApiService.
+    // Keeping this here for reference but payment calls go through a separate client.
+
+    // ── Chat ──────────────────────────────────────────────────────────────────
 
     @GET("chat/conversations")
     suspend fun getConversations(
