@@ -60,7 +60,22 @@ class GuildDashboardActivity : AppCompatActivity(), QuestDetailBottomSheet.OnQue
         listOf(R.id.tabAll to "ALL", R.id.tabOpen to "OPEN", R.id.tabPending to "PENDING").forEach { (id, value) ->
             findViewById<TextView>(id).setOnClickListener { filter = value; render() }
         }
+        loadWisdom()
         refreshCurrentUserThenLoad()
+    }
+
+    private fun loadWisdom() {
+        val token = session.getToken() ?: return
+        lifecycleScope.launch {
+            try {
+                val wisdom = RetrofitClient.apiService.getWisdom("Bearer $token").body()?.data
+                findViewById<TextView>(R.id.tvQuote).text = "\"${wisdom?.text ?: "The secret of getting ahead is getting started."}\""
+                findViewById<TextView>(R.id.tvQuoteAuthor).text = "- ${wisdom?.author ?: "Mark Twain"}"
+            } catch (_: Exception) {
+                findViewById<TextView>(R.id.tvQuote).text = "\"The secret of getting ahead is getting started.\""
+                findViewById<TextView>(R.id.tvQuoteAuthor).text = "- Mark Twain"
+            }
+        }
     }
 
     private fun refreshCurrentUserThenLoad() {

@@ -4,17 +4,174 @@
     android:layout_height="match_parent"
     android:background="@color/background"
     android:orientation="vertical">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:background="@color/panel_bg" android:gravity="center_vertical" android:orientation="horizontal" android:paddingHorizontal="16dp">
-        <TextView android:id="@+id/btnBack" android:layout_width="42dp" android:layout_height="42dp" android:gravity="center" android:text="&lt;" android:textColor="@color/surface_white" android:textSize="24sp" android:textStyle="bold" />
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Accepted Quests" android:textColor="@color/surface_white" android:textSize="19sp" android:textStyle="bold" />
+
+    <!-- Navbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/panel_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp">
+
+        <TextView
+            android:id="@+id/btnBack"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:gravity="center"
+            android:text="&lt;"
+            android:textColor="@color/surface_white"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Accepted Quests"
+            android:textColor="@color/surface_white"
+            android:textSize="19sp"
+            android:textStyle="bold" />
     </LinearLayout>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="16dp">
-        <TextView android:id="@+id/tvInProgress" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="8dp" android:layout_weight="1" android:background="@drawable/bg_chip_amber" android:gravity="center" android:padding="10dp" android:textColor="#92400E" android:textStyle="bold" />
-        <TextView android:id="@+id/tvCompleted" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="8dp" android:layout_weight="1" android:background="@drawable/bg_chip_blue" android:gravity="center" android:padding="10dp" android:textColor="#1E40AF" android:textStyle="bold" />
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:background="@drawable/bg_chip_green" android:gravity="center" android:padding="10dp" android:text="Max per Guild: 3" android:textColor="#166534" android:textStyle="bold" />
+
+    <!-- Stat badges row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="14dp">
+
+        <TextView
+            android:id="@+id/tvInProgress"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_chip_amber"
+            android:gravity="center"
+            android:padding="10dp"
+            android:text="In Progress: 0"
+            android:textColor="#92400E"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvCompleted"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_chip_blue"
+            android:gravity="center"
+            android:padding="10dp"
+            android:text="Completed: 0"
+            android:textColor="#1E40AF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_chip_green"
+            android:gravity="center"
+            android:padding="10dp"
+            android:text="Max / Guild: 3"
+            android:textColor="#166534"
+            android:textSize="12sp"
+            android:textStyle="bold" />
     </LinearLayout>
-    <LinearLayout android:id="@+id/tabRow" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingHorizontal="16dp" />
-    <ProgressBar android:id="@+id/progressBar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="12dp" android:indeterminate="true" android:indeterminateTint="@color/primary_green" android:visibility="gone" />
-    <TextView android:id="@+id/tvEmpty" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:paddingVertical="64dp" android:textColor="@color/text_hint" android:textSize="15sp" android:visibility="gone" />
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/recyclerView" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:clipToPadding="false" android:padding="20dp" />
+
+    <!-- Tab row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface_white"
+        android:elevation="2dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tabAll"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingVertical="12dp"
+            android:text="All"
+            android:textColor="@color/primary_green"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="@color/divider" />
+
+        <TextView
+            android:id="@+id/tabInProgress"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingVertical="12dp"
+            android:text="In Progress"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="@color/divider" />
+
+        <TextView
+            android:id="@+id/tabCompleted"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingVertical="12dp"
+            android:text="Completed"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Active tab indicator line -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:background="@color/primary_green" />
+
+    <!-- Progress bar -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:indeterminate="true"
+        android:indeterminateTint="@color/primary_green"
+        android:visibility="gone" />
+
+    <!-- Empty state -->
+    <TextView
+        android:id="@+id/tvEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:lineSpacingExtra="4dp"
+        android:paddingVertical="64dp"
+        android:textColor="@color/text_hint"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <!-- Quest list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:padding="16dp" />
+
 </LinearLayout>

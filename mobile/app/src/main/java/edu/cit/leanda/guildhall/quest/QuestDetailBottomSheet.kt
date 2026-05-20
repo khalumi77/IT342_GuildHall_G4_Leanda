@@ -18,10 +18,12 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
 import edu.cit.leanda.guildhall.R
 import edu.cit.leanda.guildhall.auth.QuestDto
+import java.io.File
 import java.text.NumberFormat
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.core.content.FileProvider
 
 class QuestDetailBottomSheet : BottomSheetDialogFragment() {
 
@@ -106,8 +108,7 @@ class QuestDetailBottomSheet : BottomSheetDialogFragment() {
             pdfRow.visibility = View.VISIBLE
             tvPdfName.text = name
             btnDownload.setOnClickListener {
-                val uri = Uri.parse(data ?: "")
-                startActivity(Intent(Intent.ACTION_VIEW, uri))
+                openPdf(name, data)
             }
         }
 
@@ -159,6 +160,34 @@ class QuestDetailBottomSheet : BottomSheetDialogFragment() {
         val bytes = Base64.decode(raw, Base64.DEFAULT)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     } catch (_: Exception) { null }
+
+    private fun openPdf(name: String, data: String?) {
+        if (data.isNullOrBlank()) return
+        if (data.startsWith("http://", true) || data.startsWith("https://", true)) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(data)))
+            return
+        }
+
+        val bytes = try {
+            Base64.decode(data.substringAfter(",", data), Base64.DEFAULT)
+        } catch (_: Exception) {
+            null
+        } ?: return
+
+        val safeName = name.ifBlank { "quest-attachment.pdf" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val file = File(requireContext().cacheDir, safeName)
+        file.writeBytes(bytes)
+        val uri = FileProvider.getUriForFile(
+            requireContext(),
+            "${requireContext().packageName}.fileprovider",
+            file
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, "Open PDF"))
+    }
 
     companion object {
         private const val ARG_QUEST = "quest"
