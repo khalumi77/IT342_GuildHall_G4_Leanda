@@ -1,6 +1,7 @@
 package edu.cit.leanda.guildhall.features.auth;
 
 import edu.cit.leanda.guildhall.features.auth.dto.AuthResponse;
+import edu.cit.leanda.guildhall.features.auth.dto.GoogleLoginRequest;
 import edu.cit.leanda.guildhall.features.guild.Guild;
 import edu.cit.leanda.guildhall.features.guild.Membership;
 import edu.cit.leanda.guildhall.features.user.User;
@@ -54,13 +55,16 @@ public class GoogleAuthStrategy implements AuthStrategy {
 
     @Override
     public boolean supports(Object credentials) {
-        // This strategy handles plain String auth codes coming from Google
-        return credentials instanceof String;
+        return credentials instanceof String || credentials instanceof GoogleLoginRequest;
     }
 
     @Override
     @Transactional
     public AuthResponse authenticate(Object credentials) {
+        if (credentials instanceof GoogleLoginRequest request) {
+            return authenticateIdToken(request.getIdToken());
+        }
+
         String authorizationCode = (String) credentials;
 
         // ── 1. Exchange authorization code for tokens (server-to-server) ──────
@@ -129,6 +133,49 @@ public class GoogleAuthStrategy implements AuthStrategy {
 
         // ── 3. Find or create user, issue GuildHall JWT ───────────────────────
         return buildAuthResponse(googleSub, email, name);
+    }
+
+    private AuthResponse authenticateIdToken(String idToken) {
+        if (idToken == null || idToken.isBlank()) {
+            throw new IllegalArgumentException("idToken is required");
+        }
+
+        Map<?, ?> payload = verifyIdToken(idToken);
+        String googleSub = (String) payload.get("sub");
+        String email = (String) payload.get("email");
+        String givenName = (String) payload.get("given_name");
+
+        if (googleSub == null || email == null) {
+            throw new IllegalArgumentException("Missing required fields in Google token");
+        }
+
+        String name = (givenName != null && !givenName.isBlank())
+                ? givenName
+                : email.split("@")[0];
+
+        return buildAuthResponse(googleSub, email, name);
+    }
+
+    private Map<?, ?> verifyIdToken(String idToken) {
+        RestTemplate restTemplate = new RestTemplate();
+        Map<?, ?> payload;
+        try {
+            payload = restTemplate.getForObject(
+                    "https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken, Map.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to verify id_token with Google");
+        }
+
+        if (payload == null) {
+            throw new IllegalArgumentException("Empty tokeninfo response from Google");
+        }
+
+        String aud = (String) payload.get("aud");
+        if (!googleClientId.equals(aud)) {
+            throw new IllegalArgumentException("id_token was not issued for this application");
+        }
+
+        return payload;
     }
 
     @Transactional

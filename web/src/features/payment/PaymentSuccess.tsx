@@ -32,8 +32,6 @@ export default function PaymentSuccess() {
     return () => clearTimeout(timer);
   }, []);
 
-  const questId = searchParams.get('quest_id');
-
   return (
     <div style={s.page}>
       <Navbar />

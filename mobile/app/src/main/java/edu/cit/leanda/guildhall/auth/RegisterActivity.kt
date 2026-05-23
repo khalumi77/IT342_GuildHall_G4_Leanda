@@ -1,14 +1,15 @@
 package edu.cit.leanda.guildhall.auth
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
@@ -43,6 +44,7 @@ class RegisterActivity : AppCompatActivity() {
     // ── Dependencies ──────────────────────────────────────────────────────────
     private lateinit var repository: AuthRepository
     private lateinit var sessionManager: SessionManager
+    private lateinit var googleSignInClient: GoogleSignInClient
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -52,6 +54,7 @@ class RegisterActivity : AppCompatActivity() {
 
         repository     = AuthRepository(RetrofitClient.apiService)
         sessionManager = SessionManager(this)
+        googleSignInClient = buildGoogleSignInClient()
 
         bindViews()
         setupListeners()
@@ -90,12 +93,9 @@ class RegisterActivity : AppCompatActivity() {
             true
         }
 
-        // Backend-driven Google OAuth — same flow as LoginActivity.
-        // The backend handles whether this is a new or returning Google user.
         btnGoogleSignUp.setOnClickListener {
-            val initUrl = "${RetrofitClient.serverBaseUrl}api/v1/auth/google/init?platform=mobile"
-            val customTabsIntent = CustomTabsIntent.Builder().build()
-            customTabsIntent.launchUrl(this, Uri.parse(initUrl))
+            hideServerError()
+            launchGoogleAccountPicker()
         }
 
         tvGoToLogin.setOnClickListener {
@@ -184,6 +184,57 @@ class RegisterActivity : AppCompatActivity() {
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != RC_GOOGLE_SIGN_IN) return
+
+        val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+        try {
+            val account = task.getResult(Exception::class.java)
+            val idToken = account.idToken
+            if (idToken.isNullOrBlank()) {
+                showServerError("Google did not return an ID token.")
+                return
+            }
+            authenticateWithGoogle(idToken)
+        } catch (e: Exception) {
+            showServerError(e.message ?: "Google sign-in was cancelled.")
+        }
+    }
+
+    private fun authenticateWithGoogle(idToken: String) {
+        setLoading(true)
+        lifecycleScope.launch {
+            val result = repository.googleLogin(idToken)
+            setLoading(false)
+
+            result.fold(
+                onSuccess = { (token, user) ->
+                    sessionManager.saveToken(token)
+                    sessionManager.saveUser(user)
+                    navigateAfterAuth(isNewUser = user.newUser)
+                },
+                onFailure = { error ->
+                    showServerError(error.message ?: "Google login failed.")
+                }
+            )
+        }
+    }
+
+    private fun launchGoogleAccountPicker() {
+        googleSignInClient.signOut().addOnCompleteListener {
+            startActivityForResult(googleSignInClient.signInIntent, RC_GOOGLE_SIGN_IN)
+        }
+    }
+
+    private fun buildGoogleSignInClient(): GoogleSignInClient {
+        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(getString(R.string.google_web_client_id))
+            .requestEmail()
+            .build()
+        return GoogleSignIn.getClient(this, options)
+    }
+
     // ── Navigation ────────────────────────────────────────────────────────────
 
     private fun navigateAfterAuth(isNewUser: Boolean) {
@@ -228,5 +279,9 @@ class RegisterActivity : AppCompatActivity() {
         tv.visibility      = View.GONE
         til.isErrorEnabled = false
         til.error          = null
+    }
+
+    companion object {
+        private const val RC_GOOGLE_SIGN_IN = 9001
     }
 }

@@ -5,7 +5,9 @@ import edu.cit.leanda.guildhall.features.auth.dto.LoginRequest;
 import edu.cit.leanda.guildhall.features.auth.dto.RegisterRequest;
 import edu.cit.leanda.guildhall.features.auth.dto.SkillsRequest;
 import edu.cit.leanda.guildhall.features.auth.dto.AuthResponse;
+import edu.cit.leanda.guildhall.features.auth.dto.GoogleLoginRequest;
 import edu.cit.leanda.guildhall.features.auth.AuthService;
+import edu.cit.leanda.guildhall.features.auth.GoogleAuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,6 +31,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final GoogleAuthService googleAuthService;
     private final ApiResponseWrapper responseWrapper; // Decorator Pattern
 
     @PostMapping("/register")
@@ -63,6 +66,17 @@ public class AuthController {
     public ResponseEntity<?> logout() {
         return ResponseEntity.ok(
                 responseWrapper.ok(Map.of("message", "Logged out successfully"))); // Decorator Pattern
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<?> googleLogin(@RequestBody GoogleLoginRequest request) {
+        if (request.getIdToken() == null || request.getIdToken().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(responseWrapper.error("idToken is required"));
+        }
+
+        AuthResponse response = googleAuthService.googleLogin(request.getIdToken());
+        return ResponseEntity.ok(responseWrapper.ok(response));
     }
 }
 

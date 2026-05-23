@@ -38,6 +38,9 @@ class AuthControllerIntegrationTest {
     private AuthService authService;
 
     @MockBean
+    private GoogleAuthService googleAuthService;
+
+    @MockBean
     private JwtAuthFilter jwtAuthFilter;
 
     @Test

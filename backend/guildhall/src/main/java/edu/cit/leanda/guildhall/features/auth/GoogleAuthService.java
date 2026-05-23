@@ -1,6 +1,7 @@
 package edu.cit.leanda.guildhall.features.auth;
 
 import edu.cit.leanda.guildhall.features.auth.dto.AuthResponse;
+import edu.cit.leanda.guildhall.features.auth.dto.GoogleLoginRequest;
 import edu.cit.leanda.guildhall.features.auth.AuthStrategyResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,13 @@ public class GoogleAuthService {
      */
     public AuthResponse googleLoginWithCode(String authorizationCode) {
         return authStrategyResolver.resolve(authorizationCode); // Strategy Pattern
+    }
+
+    /**
+     * Verifies a Google ID token from web or Android native Google Sign-In.
+     */
+    public AuthResponse googleLogin(String idToken) {
+        return authStrategyResolver.resolve(new GoogleLoginRequest(idToken));
     }
 }
 

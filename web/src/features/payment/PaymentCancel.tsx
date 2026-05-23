@@ -1,12 +1,10 @@
 // src/pages/PaymentCancel.tsx
 import React from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../../shared/components/Navbar';
 
 export default function PaymentCancel() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const questId = searchParams.get('quest_id');
 
   return (
     <div style={s.page}>

@@ -51,6 +51,7 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/v1/auth/register",
                     "/api/v1/auth/login",
+                    "/api/v1/auth/google",
                     // Backend-driven Google OAuth2 — both endpoints must be public
                     // /init  → browser visits this to start the flow
                     // /callback → Google redirects here with the auth code

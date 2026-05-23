@@ -80,6 +80,33 @@ class AuthRepository(private val api: ApiService) {
         }
     }
 
+    suspend fun googleLogin(idToken: String): Result<Pair<String, UserDto>> {
+        return try {
+            val response = api.googleLogin(GoogleLoginRequest(idToken))
+            val envelope = response.body()
+
+            when {
+                response.isSuccessful && envelope?.success == true -> {
+                    val token = envelope.data?.token
+                    val user = envelope.data?.user
+                    if (token != null && user != null) {
+                        Result.success(Pair(token, user))
+                    } else {
+                        Result.failure(Exception("Invalid response from server"))
+                    }
+                }
+                else -> {
+                    val message = envelope?.error?.message
+                        ?: response.errorBody()?.string()
+                        ?: "Google login failed. Please try again."
+                    Result.failure(Exception(message))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(networkErrorMessage(e)))
+        }
+    }
+
     /**
      * Save the user's selected skills (called from the skills onboarding screen).
      * @param token  The JWT from login/register.
