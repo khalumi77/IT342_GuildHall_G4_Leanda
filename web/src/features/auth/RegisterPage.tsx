@@ -122,7 +122,7 @@ function Field({ label, type, placeholder, value, onChange, error }: {
 const FEATURES = [
   { icon: '📋', text: 'Browse real-time community tasks. Find a mission that matches your skills.' },
   { icon: '🏠', text: 'Work together with people you actually know in dedicated sub-groups.' },
-  { icon: '⭐', text: 'Volunteer out of good will or be rewarded for your hard work via Stripe, all heroes are welcome!' },
+  { icon: '⭐', text: 'Volunteer out of good will or be rewarded for your hard work via PayMongo, all heroes are welcome!' },
 ];
 
 const styles: Record<string, React.CSSProperties> = {
