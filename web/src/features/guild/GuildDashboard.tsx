@@ -34,7 +34,13 @@ const FALLBACK_QUOTES = [
   { text: "Do what you can, with what you have, where you are.", author: "Theodore Roosevelt" },
   { text: "It does not matter how slowly you go as long as you do not stop.", author: "Confucius" },
 ];
-function getTodayString() { return new Date().toISOString().slice(0, 10); }
+function getTodayString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 function getCachedQuote(): DailyQuote | null {
   try {
     const raw = sessionStorage.getItem(QUOTE_CACHE_KEY);
