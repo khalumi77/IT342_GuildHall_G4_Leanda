@@ -59,7 +59,8 @@ dependencies {
     // ── Coroutines ────────────────────────────────────────────────────────────
     implementation(libs.coroutines.android)
 
-    // ── Browser (Chrome Custom Tabs for backend-driven Google OAuth) ──────────
+    // ── Google Sign-In ───────────────────────────────────────────────────────
+    implementation(libs.google.auth)
     implementation("androidx.browser:browser:1.8.0")
 
     // ── Tests ─────────────────────────────────────────────────────────────────

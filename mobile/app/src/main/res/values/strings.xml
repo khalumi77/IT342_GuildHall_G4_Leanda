@@ -14,6 +14,7 @@
     <string name="link_register">Sign up instead</string>
     <string name="divider_or">or</string>
     <string name="btn_google_sign_in">Continue with Google</string>
+    <string name="google_web_client_id" translatable="false">835483502200-dc4gpdia39m4iseh8opekoc78pkddbm7.apps.googleusercontent.com</string>
 
     <!-- Register -->
     <string name="register_title">Register</string>

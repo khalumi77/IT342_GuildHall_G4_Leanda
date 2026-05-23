@@ -944,6 +944,7 @@ function QuestFormModal({
   compressing, error, submitting, fileInputRef,
   onFileChange, onRemoveAttachment, onSubmit, onClose, formId,
 }: QuestFormModalProps) {
+  void attachPreview;
   const isImg = attachIsImage ?? (attachDisplayName ? /\.(jpg|jpeg|png|gif|webp)$/i.test(attachDisplayName) : false);
 
   return (

@@ -28,6 +28,10 @@ data class SkillsRequest(
     val skills: List<String>
 )
 
+data class GoogleLoginRequest(
+    val idToken: String
+)
+
 data class CreateQuestRequest(
     val title: String,
     val category: String,
@@ -248,6 +252,9 @@ interface ApiService {
 
     @POST("auth/login")
     suspend fun login(@Body body: LoginRequest): Response<AuthEnvelope>
+
+    @POST("auth/google")
+    suspend fun googleLogin(@Body body: GoogleLoginRequest): Response<AuthEnvelope>
 
     @POST("auth/skills")
     suspend fun saveSkills(

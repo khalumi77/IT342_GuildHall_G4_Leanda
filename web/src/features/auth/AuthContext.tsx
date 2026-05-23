@@ -1,5 +1,5 @@
 // src/context/AuthContext.tsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { authApi } from './authApi';
 import type { UserDto } from './authApi';
@@ -14,6 +14,7 @@ interface AuthContextType {
   register: (email: string, username: string, password: string) => Promise<UserDto>;
   saveSkills: (skills: string[]) => Promise<void>;
   logout: () => void;
+  googleLogin: (idToken: string) => Promise<UserDto>;
   // Called by GoogleCallback page after backend-driven OAuth2 completes
   setTokenFromCallback: (token: string) => Promise<UserDto | null>;
   setTransitioning: (v: boolean) => void;
@@ -88,6 +89,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const googleLogin = async (idToken: string): Promise<UserDto> => {
+    setAuthenticating(true);
+    try {
+      const res = await authApi.googleLogin(idToken);
+      const { token: t, user: u } = res.data.data;
+      persistToken(t);
+      setUser(u);
+      return u;
+    } finally {
+      setAuthenticating(false);
+    }
+  };
+
   /**
    * Used by the GoogleCallback page.
    * Stores the JWT returned by the backend redirect, then fetches the full
@@ -115,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, token, isLoading, authenticating, transitioning,
       login, register, saveSkills, logout,
-      setTokenFromCallback, setTransitioning, updateUserState,
+      googleLogin, setTokenFromCallback, setTransitioning, updateUserState,
     }}>
       {children}
     </AuthContext.Provider>
